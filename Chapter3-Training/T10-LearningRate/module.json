@@ -1,0 +1,30 @@
+{
+  "id": "T10-learning-rate",
+  "number": "T10",
+  "title": "学习率",
+  "executor": "Codex",
+  "chapters": [
+    "recognize-lr",
+    "valley-one-step",
+    "lr-too-small",
+    "lr-just-right",
+    "lr-too-large",
+    "lr-divergent",
+    "mlp-fit-lr"
+  ],
+  "status": "前端+manim 就绪",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js",
+    "assets/lr_valley_walk.mp4",
+    "assets/lr_valley_walk_poster.png",
+    "assets/lr_mlp_compare.mp4",
+    "assets/lr_mlp_compare_poster.png"
+  ],
+  "description": "根据 T10 LDD 制作的交互式网页：在 Loss 山谷里手动调节学习率，依次体验 太小/合适/太大/发散 四种步长，再把学习率搬到 MLP 曲线拟合里直观看到训练动态。",
+  "rootClass": "t10",
+  "sourceName": "Chapter3-Training/T10-LearningRate/SKILL.md"
+}
