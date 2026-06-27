@@ -90,14 +90,18 @@
 
 .t08-progress button[disabled] { opacity: 0.55; cursor: not-allowed; }
 
+.t08-progress button:focus-visible {
+  outline: 2px solid var(--t08-accent);
+  outline-offset: 2px;
+}
+
 /* 场景栈 */
 .t08-scene-stack { display: flex; flex-direction: column; gap: 24px; }
 
 .t08-scene {
   background: var(--t08-bg-card);
-  border-radius: var(--ui-radius-xl);
+  border-radius: 16px;
   border: 1px solid var(--ui-border);
-  box-shadow: var(--ui-shadow-soft);
   padding: 28px 32px;
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
@@ -186,6 +190,11 @@
 }
 
 .t08-action[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+.t08-action:focus-visible {
+  outline: 2px solid var(--t08-accent);
+  outline-offset: 3px;
+}
 
 /* 链条画布（场景 1-3 共用） */
 .t08-chain {
@@ -508,7 +517,7 @@
   border-left: 3px solid var(--t08-accent);
 }
 
-.t08-feedback.tone-grad   { color: var(--t08-grad);   border-left-color: var(--t08-grad);   background: rgba(124, 58, 237, 0.05); }
+.t08-feedback.tone-grad   { color: #6d28d9;           border-left-color: var(--t08-grad);   background: rgba(124, 58, 237, 0.06); }
 .t08-feedback.tone-update { color: var(--t08-update); border-left-color: var(--t08-update); background: rgba(22, 163, 74, 0.05); }
 .t08-feedback.tone-loss   { color: var(--t08-loss);   border-left-color: var(--t08-loss);   background: rgba(220, 38, 38, 0.05); }
 
@@ -544,6 +553,7 @@
 .t08-quiz .option:hover { border-color: var(--t08-accent); }
 .t08-quiz .option.is-correct { border-color: var(--t08-update); background: rgba(22, 163, 74, 0.08); }
 .t08-quiz .option.is-wrong   { border-color: var(--t08-loss);  background: rgba(220, 38, 38, 0.05); }
+.t08-quiz .option:focus-visible { outline: 2px solid var(--t08-accent); outline-offset: 2px; }
 
 /* 引导转场卡 */
 .t08-transition {
@@ -564,4 +574,19 @@
 @media (max-width: 980px) {
   .t08-scene { grid-template-columns: 1fr; }
   .t08-localgrid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t08-chain-edge,
+  .t08-chain-pulse,
+  .t08-net-edge,
+  .t08-net-pulse,
+  .t08-mul-slot,
+  .t08-mul-result,
+  .t08-local,
+  .t08-action,
+  .t08-progress button {
+    transition: none !important;
+    animation: none !important;
+  }
 }

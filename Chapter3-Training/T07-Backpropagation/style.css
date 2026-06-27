@@ -99,6 +99,11 @@
   cursor: not-allowed;
 }
 
+.t07-progress button:focus-visible {
+  outline: 2px solid var(--t07-accent);
+  outline-offset: 2px;
+}
+
 /* 场景栈 */
 .t07-scene-stack {
   display: flex;
@@ -108,9 +113,8 @@
 
 .t07-scene {
   background: var(--t07-bg-card);
-  border-radius: var(--ui-radius-xl);
+  border-radius: 16px;
   border: 1px solid var(--ui-border);
-  box-shadow: var(--ui-shadow-soft);
   padding: 28px 32px;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
@@ -220,6 +224,11 @@
   box-shadow: none;
 }
 
+.t07-action:focus-visible {
+  outline: 2px solid var(--t07-accent);
+  outline-offset: 3px;
+}
+
 /* 网络结构图 */
 .t07-network {
   position: relative;
@@ -260,9 +269,9 @@
 .t07-edge-pulse.is-active { animation: t07-pulse 1.2s ease-in-out forwards; }
 
 @keyframes t07-pulse {
-  0%   { opacity: 0;   stroke-dasharray: 0 220; stroke-dashoffset: 0; }
-  25%  { opacity: 0.9; stroke-dasharray: 60 220; }
-  100% { opacity: 0;   stroke-dasharray: 220 0; stroke-dashoffset: -200; }
+  0%   { opacity: 0; }
+  25%  { opacity: 0.85; }
+  100% { opacity: 0; }
 }
 
 .t07-node {
@@ -373,7 +382,7 @@
 }
 
 .t07-feedback.tone-loss { color: var(--t07-loss); border-left-color: var(--t07-loss); background: rgba(220, 38, 38, 0.05); }
-.t07-feedback.tone-grad { color: var(--t07-grad); border-left-color: var(--t07-grad); background: rgba(124, 58, 237, 0.05); }
+.t07-feedback.tone-grad { color: #6d28d9; border-left-color: var(--t07-grad); background: rgba(124, 58, 237, 0.06); }
 .t07-feedback.tone-update { color: var(--t07-update); border-left-color: var(--t07-update); background: rgba(22, 163, 74, 0.05); }
 
 /* 训练循环面板 */
@@ -514,6 +523,7 @@
 .t07-quiz .option:hover { border-color: var(--t07-accent); }
 .t07-quiz .option.is-correct { border-color: var(--t07-update); background: rgba(22, 163, 74, 0.08); }
 .t07-quiz .option.is-wrong { border-color: var(--t07-loss); background: rgba(220, 38, 38, 0.05); }
+.t07-quiz .option:focus-visible { outline: 2px solid var(--t07-accent); outline-offset: 2px; }
 
 /* 引导转场卡 */
 .t07-transition {
@@ -534,4 +544,17 @@
 @media (max-width: 980px) {
   .t07-scene { grid-template-columns: 1fr; }
   .t07-loop  { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t07-edge,
+  .t07-edge-pulse,
+  .t07-curve-pred,
+  .t07-bar .fill,
+  .t07-bar .val,
+  .t07-action,
+  .t07-progress button {
+    transition: none !important;
+    animation: none !important;
+  }
 }
