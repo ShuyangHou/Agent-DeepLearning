@@ -1,0 +1,28 @@
+{
+  "id": "T09-batch-and-epoch",
+  "number": "T09",
+  "title": "Batch 与 Epoch",
+  "executor": "Codex",
+  "chapters": [
+    "full-batch",
+    "minibatch-step",
+    "one-epoch",
+    "multi-epoch-compare",
+    "concept-check"
+  ],
+  "status": "前端+manim 就绪",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js",
+    "assets/batch_step_loop.mp4",
+    "assets/batch_step_loop_poster.png",
+    "assets/batch_size_compare.mp4",
+    "assets/batch_size_compare_poster.png"
+  ],
+  "description": "根据 T09 LDD 制作的交互式网页：从全量梯度引入 mini-batch，依次演示走一步、走一个 epoch、多个 epoch；并提供不同 batch size 下 loss 曲线的对比实验与概念测验。",
+  "rootClass": "t09",
+  "sourceName": "Chapter3-Training/T09-Batch-and-Epoch/SKILL.md"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "T09-Batch-and-Epoch",
+  "title": "Batch 与 Epoch",
+  "use_when": "用户想搞清楚训练循环里 step / batch / epoch 三个时间尺度怎么对应，或者想直观看到 batch size 对训练动态的影响。",
+  "summary": "把训练数据画成方阵，依次演示：全量梯度→洗牌切批→走一步→N/B 步走完一个 epoch→多个 epoch 串起来；再用三档 batch size 的 loss 曲线对比噪声与平滑的取舍。",
+  "prerequisites": [
+    "梯度下降与参数更新",
+    "反向传播",
+    "链式法则"
+  ]
+}
