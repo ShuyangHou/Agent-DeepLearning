@@ -1,0 +1,28 @@
+{
+  "id": "T08-chain-rule",
+  "number": "T08",
+  "title": "链式法则",
+  "executor": "Codex",
+  "chapters": [
+    "chain-unrolled",
+    "local-effects",
+    "chain-multiply",
+    "shared-backflow",
+    "concept-check"
+  ],
+  "status": "前端+manim 就绪",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js",
+    "assets/chain_rule_unrolled.mp4",
+    "assets/chain_rule_unrolled_poster.png",
+    "assets/multi_neuron_chain.mp4",
+    "assets/multi_neuron_chain_poster.png"
+  ],
+  "description": "根据 T08 LDD 制作的交互式网页：单条链放大、四段局部影响实验、链式乘法合成、多神经元共享回传与概念测验。",
+  "rootClass": "t08",
+  "sourceName": "Chapter3-Training/T08-ChainRule/SKILL.md"
+}

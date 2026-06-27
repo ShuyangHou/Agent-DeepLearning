@@ -11,3 +11,4 @@ __pycache__/
 
 # manim build artefacts
 media/
+videos/
