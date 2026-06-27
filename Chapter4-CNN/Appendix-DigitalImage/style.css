@@ -140,22 +140,7 @@
   animation: cnn01-continue-out 220ms ease both;
 }
 
-.cnn01-scene-section.is-past {
-  box-shadow: 0 8px 24px rgba(25, 42, 70, 0.06);
-}
-
-.cnn01-scene-section.is-past .cnn01-stage-head {
-  background: #fff;
-}
-
-.cnn01-scene-section.is-past .cnn01-workbench,
-.cnn01-scene-section.is-past .cnn01-side-panel {
-  background: #fff;
-}
-
-.cnn01-scene-section.is-past .cnn01-workbench {
-  opacity: 0.92;
-}
+/* Past scenes stay flush with the active stage (align with T14/T17). */
 
 .cnn01-stage.is-transitioning .cnn01-workbench,
 .cnn01-stage.is-transitioning .cnn01-side-panel {
