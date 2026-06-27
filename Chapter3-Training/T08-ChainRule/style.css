@@ -60,7 +60,8 @@
   box-shadow: var(--ui-shadow-soft);
 }
 
-.t08-progress button {
+.t08-progress button,
+.t08-progress a {
   appearance: none;
   border: 1px solid var(--ui-border);
   background: var(--ui-bg-muted);
@@ -71,26 +72,35 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.t08-progress button:hover { border-color: var(--t08-accent); color: var(--t08-accent); }
+.t08-progress button:hover,
+.t08-progress a:hover { border-color: var(--t08-accent); color: var(--t08-accent); }
 
-.t08-progress button.is-active {
+.t08-progress button.is-active,
+.t08-progress a.is-active {
   background: var(--t08-accent);
   color: #fff;
   border-color: var(--t08-accent);
   box-shadow: 0 6px 14px rgba(37, 99, 235, 0.25);
 }
 
-.t08-progress button.is-done {
+.t08-progress button.is-done,
+.t08-progress a.is-done {
   border-color: var(--t08-update);
   color: var(--t08-update);
   background: rgba(22, 163, 74, 0.08);
 }
 
-.t08-progress button[disabled] { opacity: 0.55; cursor: not-allowed; }
+.t08-progress button[disabled],
+.t08-progress a.is-locked { opacity: 0.55; cursor: not-allowed; pointer-events: none; }
 
-.t08-progress button:focus-visible {
+.t08-progress button:focus-visible,
+.t08-progress a:focus-visible {
   outline: 2px solid var(--t08-accent);
   outline-offset: 2px;
 }
@@ -589,4 +599,60 @@
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* pager */
+.t08-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 14px 20px;
+  background: var(--t08-bg-card);
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--ui-border);
+  box-shadow: var(--ui-shadow-soft);
+}
+
+.t08-pager-btn {
+  appearance: none;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg-muted);
+  color: var(--t08-ink);
+  padding: 10px 18px;
+  border-radius: var(--ui-radius-pill);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.t08-pager-btn:hover {
+  border-color: var(--t08-accent);
+  color: var(--t08-accent);
+}
+
+.t08-pager-btn.primary {
+  background: var(--t08-accent);
+  color: #fff;
+  border-color: var(--t08-accent);
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.25);
+}
+
+.t08-pager-btn.primary:hover {
+  color: #fff;
+  filter: brightness(1.05);
+}
+
+.t08-pager-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.t08-pager-counter {
+  font-size: 14px;
+  color: var(--t08-muted);
+  font-weight: 600;
 }

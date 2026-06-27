@@ -19,6 +19,9 @@
 
   var sceneStack = document.getElementById('sceneStack');
   var progressNav = document.getElementById('progressNav');
+  var scenePager = document.getElementById('scenePager');
+
+  var sceneBuilders = null; // populated in mount()
 
   var defaultFeedback = [
     '先让信号从 x 流到 y′，看一次完整的前向。',
@@ -90,13 +93,34 @@
 
   function goToScene(idx) {
     if (!canEnter(idx)) return;
+    var target = '#/scene/' + (idx + 1);
+    if (location.hash !== target) {
+      location.hash = target;
+    } else {
+      showScene(idx);
+    }
+  }
+
+  function showScene(idx) {
+    if (!sceneBuilders) return;
+    if (!canEnter(idx)) {
+      idx = Math.min(state.maxScene, sceneBuilders.length - 1);
+    }
     state.scene = idx;
     state.maxScene = Math.max(state.maxScene, idx);
+    sceneStack.innerHTML = '';
+    sceneStack.appendChild(sceneBuilders[idx]());
     renderProgress();
-    var node = sceneStack.querySelector('[data-scene-index="' + idx + '"]');
-    if (node) {
-      setTimeout(function () { node.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
-    }
+    renderPager();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function sceneFromHash() {
+    var m = (location.hash || '').match(/#\/scene\/(\d+)/);
+    if (!m) return 0;
+    var n = parseInt(m[1], 10);
+    if (isNaN(n)) return 0;
+    return Math.max(0, Math.min(scenes.length - 1, n - 1));
   }
 
   // ---------- progress nav ----------
@@ -104,17 +128,69 @@
   function renderProgress() {
     progressNav.innerHTML = '';
     scenes.forEach(function (sc, idx) {
-      var btn = el('button', {
-        type: 'button',
+      var btn = el('a', {
+        href: '#/scene/' + (idx + 1),
         text: (idx + 1) + ' · ' + sc.pill
       });
       btn.classList.toggle('is-active', state.scene === idx);
       btn.classList.toggle('is-done', sceneReady(idx));
-      if (!canEnter(idx)) btn.setAttribute('disabled', 'disabled');
+      if (!canEnter(idx)) {
+        btn.setAttribute('aria-disabled', 'true');
+        btn.classList.add('is-locked');
+      }
       setTracking(btn, 't07_progress_step_' + (idx + 1), 'progress_jump', { scene: idx + 1 });
-      btn.addEventListener('click', function () { goToScene(idx); });
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        goToScene(idx);
+      });
       progressNav.appendChild(btn);
     });
+  }
+
+  function renderPager() {
+    if (!scenePager) return;
+    scenePager.innerHTML = '';
+    var idx = state.scene;
+    var prevIdx = idx - 1;
+    var nextIdx = idx + 1;
+
+    var prev = el('button', {
+      class: 't07-pager-btn ghost',
+      type: 'button',
+      text: '\u2190 \u4e0a\u4e00\u8282'
+    });
+    if (prevIdx < 0) {
+      prev.setAttribute('disabled', 'disabled');
+    } else {
+      prev.title = scenes[prevIdx] ? scenes[prevIdx].pill : '';
+      prev.addEventListener('click', function () { goToScene(prevIdx); });
+    }
+    setTracking(prev, 't07_pager_prev', 'pager_prev', { scene: idx + 1 });
+
+    var counter = el('span', {
+      class: 't07-pager-counter',
+      text: (idx + 1) + ' / ' + scenes.length + ' · ' + (scenes[idx] ? scenes[idx].pill : '')
+    });
+
+    var next = el('button', {
+      class: 't07-pager-btn primary',
+      type: 'button',
+      text: '\u4e0b\u4e00\u8282 \u2192'
+    });
+    if (nextIdx >= scenes.length) {
+      next.setAttribute('disabled', 'disabled');
+    } else if (!canEnter(nextIdx)) {
+      next.setAttribute('disabled', 'disabled');
+      next.title = '\u5148\u5b8c\u6210\u5f53\u524d\u5c0f\u8282\u7684\u4e92\u52a8';
+    } else {
+      next.title = scenes[nextIdx] ? scenes[nextIdx].pill : '';
+      next.addEventListener('click', function () { goToScene(nextIdx); });
+    }
+    setTracking(next, 't07_pager_next', 'pager_next', { scene: idx + 1 });
+
+    scenePager.appendChild(prev);
+    scenePager.appendChild(counter);
+    scenePager.appendChild(next);
   }
 
   // ---------- network SVG ----------
@@ -756,12 +832,9 @@
   // ---------- mount ----------
 
   function mount() {
-    sceneStack.appendChild(buildScene0());
-    sceneStack.appendChild(buildScene1());
-    sceneStack.appendChild(buildScene2());
-    sceneStack.appendChild(buildScene3());
-    sceneStack.appendChild(buildScene4());
-    renderProgress();
+    sceneBuilders = [buildScene0, buildScene1, buildScene2, buildScene3, buildScene4];
+    window.addEventListener('hashchange', function () { showScene(sceneFromHash()); });
+    showScene(sceneFromHash());
   }
 
   mount();
