@@ -22,7 +22,7 @@
 
 | 编号 | 模块 | 状态 |
 | ---- | ---- | ---- |
-| T7  | [反向传播](Chapter3-Training/T07-Backpropagation/)   | SKILL 草稿（与 T8 合写） |
+| T7  | [反向传播](Chapter3-Training/T07-Backpropagation/)   | 前端 + manim 已就绪 |
 | T8  | [链式法则](Chapter3-Training/T08-ChainRule/)          | 指向 T7，待拆稿 |
 | T9  | [Batch 与 Epoch](Chapter3-Training/T09-Batch-and-Epoch/) | 占位 |
 | T10 | [学习率](Chapter3-Training/T10-LearningRate/)        | SKILL 草稿 |

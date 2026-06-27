@@ -1,0 +1,28 @@
+{
+  "id": "T07-backpropagation",
+  "number": "T07",
+  "title": "反向传播",
+  "executor": "Codex",
+  "chapters": [
+    "forward-predict",
+    "loss-and-blame",
+    "backward-flow",
+    "weight-update",
+    "training-loop"
+  ],
+  "status": "前端+manim 就绪",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js",
+    "assets/backprop_signal_flow.mp4",
+    "assets/backprop_signal_flow_poster.png",
+    "assets/mlp_curve_fit_training_loop.mp4",
+    "assets/mlp_curve_fit_training_loop_poster.png"
+  ],
+  "description": "根据 T07 LDD 制作的交互式网页：前向预测、计算 Loss、反向传播、参数更新与一次完整的训练循环。",
+  "rootClass": "t07",
+  "sourceName": "Chapter3-Training/T07-Backpropagation/SKILL.md"
+}
