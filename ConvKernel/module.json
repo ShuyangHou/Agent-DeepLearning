@@ -1,0 +1,34 @@
+{
+  "id": "CNN03-convolution-kernel-detective",
+  "number": "CNN03",
+  "title": "卷积核侦探",
+  "executor": "Codex",
+  "chapters": [
+    "detector-intro",
+    "kernel-response-lab",
+    "scan-feature-map",
+    "feature-map-link",
+    "multi-kernel",
+    "quiz"
+  ],
+  "status": "新增实验台",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js",
+    "assets/convolution_overlay_sum.mp4",
+    "assets/convolution_overlay_sum_poster.png",
+    "assets/convolution_scan_feature_map.mp4",
+    "assets/convolution_scan_feature_map_poster.png"
+  ],
+  "description": "根据 CNN03 LDD 制作的交互式网页：卷积核登场、卷积核计算与响应分数对比、视频扫描生成特征图、多卷积核与通关检查。",
+  "rootClass": "cnn03",
+  "config": {
+    "imageShape": [7, 5],
+    "kernelShape": [3, 3],
+    "kernelCount": 3
+  },
+  "sourceName": "CNN_md/03_关卡3_卷积核.md"
+}

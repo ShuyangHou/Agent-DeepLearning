@@ -1,0 +1,30 @@
+{
+  "id": "CNN01-image-guidence",
+  "number": "CNN01",
+  "title": "模型眼中的图像",
+  "executor": "Codex",
+  "chapters": [
+    "human-view",
+    "pixel-grid",
+    "raw-pixel-values",
+    "normalization",
+    "matrix-render-check"
+  ],
+  "status": "新增实验台",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js"
+  ],
+  "description": "根据 CNN01 LDD 制作的交互式网页：猜数字、放大像素网格、读取 0-255 数值、归一化到 0-1，并完成矩阵渲染配对。",
+  "rootClass": "cnn01",
+  "config": {
+    "imageType": "grayscale",
+    "rawRange": [0, 255],
+    "normalizedRange": [0, 1],
+    "digit": "7"
+  },
+  "sourceName": "CNN_md/01_关卡1_模型眼中的图像.md"
+}

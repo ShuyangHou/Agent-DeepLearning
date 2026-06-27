@@ -1,0 +1,13 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+__MACOSX/
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# manim build artefacts
+media/

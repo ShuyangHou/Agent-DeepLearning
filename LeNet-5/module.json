@@ -1,0 +1,36 @@
+{
+  "id": "CNN05-lenet5-classic-cnn",
+  "number": "CNN05",
+  "title": "经典卷积神经网络：LeNet-5",
+  "executor": "Codex",
+  "chapters": [
+    "lenet5-intro",
+    "lenet5-overview",
+    "c1-convolution",
+    "activation-s2-pooling",
+    "c3-s4-convolution",
+    "c5-f6-fully-connected",
+    "output-probabilities",
+    "full-forward-pass"
+  ],
+  "status": "新增实验台",
+  "availability": "available",
+  "entry": "index.html",
+  "assets": [
+    "style.css",
+    "guide.js",
+    "script.js",
+    "assets/image_7.jpg",
+    "assets/lenet5_intro_overview.mp4",
+    "assets/lenet5_intro_overview_poster.png",
+    "manim/lenet5_intro_overview.py"
+  ],
+  "description": "根据 CNN05 LDD 制作的交互式网页：以数字 7 的 32×32×1 灰度图像为输入，认识经典 LeNet-5 如何处理数字图片并输出 0-9 概率。",
+  "rootClass": "cnn05",
+  "config": {
+    "inputShape": [32, 32, 1],
+    "model": "LeNet-5",
+    "classes": 10
+  },
+  "sourceName": "CNN_md/05_关卡5_经典卷积神经网络_LeNet-5.md"
+}
