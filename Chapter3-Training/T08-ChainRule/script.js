@@ -14,6 +14,7 @@
     multiplyDone: false,
     backpropDone: false,
     hiddenDone: { h1: false, h2: false, h3: false },
+    activeHidden: '',
     feedback: {},
     quizChoice: '',
     quizDone: false
@@ -77,6 +78,25 @@
     return state.feedback[idx] || { text: defaultFeedback[idx], tone: '' };
   }
 
+  function reduceMotionPreferred() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function completedSegmentCount() {
+    return chain.segments.filter(function (s) { return state.segmentsDone[s.id]; }).length;
+  }
+
+  function completedHiddenCount() {
+    return network.hidden.filter(function (h) { return state.hiddenDone[h.id]; }).length;
+  }
+
+  function sceneStatusLabel(idx) {
+    if (!canEnter(idx)) return '未解锁';
+    if (sceneReady(idx)) return '已完成';
+    if (state.scene === idx) return '当前';
+    return '已解锁';
+  }
+
   function allSegmentsDone() {
     return chain.segments.every(function (s) { return state.segmentsDone[s.id]; });
   }
@@ -109,7 +129,8 @@
     }
   }
 
-  function showScene(idx) {
+  function showScene(idx, options) {
+    options = options || {};
     if (!sceneBuilders) return;
     if (!canEnter(idx)) {
       idx = Math.min(state.maxScene, sceneBuilders.length - 1);
@@ -120,7 +141,9 @@
     sceneStack.appendChild(sceneBuilders[idx]());
     renderProgress();
     renderPager();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!options.skipScroll) {
+      window.scrollTo({ top: 0, behavior: reduceMotionPreferred() ? 'auto' : 'smooth' });
+    }
   }
 
   function sceneFromHash() {
@@ -137,8 +160,12 @@
     progressNav.innerHTML = '';
     scenes.forEach(function (sc, idx) {
       var btn = el('a', { href: '#/scene/' + (idx + 1), text: (idx + 1) + ' · ' + sc.pill });
+      btn.setAttribute('aria-label', '第 ' + (idx + 1) + ' 节，' + sc.pill + '，状态：' + sceneStatusLabel(idx));
       btn.classList.toggle('is-active', state.scene === idx);
       btn.classList.toggle('is-done', sceneReady(idx));
+      if (state.scene === idx) {
+        btn.setAttribute('aria-current', 'step');
+      }
       if (!canEnter(idx)) {
         btn.setAttribute('aria-disabled', 'true');
         btn.classList.add('is-locked');
@@ -283,6 +310,13 @@
     pulse.classList.add('is-active');
   }
 
+  function markSegmentComplete(scope, segId) {
+    var edge = scope.querySelector('[data-edge="' + segId + '"]');
+    var tag = scope.querySelector('[data-tag="' + segId + '"]');
+    if (edge) edge.classList.add('is-hot');
+    if (tag) tag.classList.add('is-hot');
+  }
+
   // ---------- shared scene head ----------
 
   function sceneHead(idx) {
@@ -348,7 +382,16 @@
 
     wrap.appendChild(feedbackBar(0));
 
+    if (state.chainViewed) {
+      chain.segments.forEach(function (seg) { markSegmentComplete(chainBox, seg.id); });
+      nextBtn.removeAttribute('disabled');
+    }
+
+    var isPlaying = false;
     seeBtn.addEventListener('click', function () {
+      if (isPlaying) return;
+      isPlaying = true;
+      seeBtn.setAttribute('disabled', 'disabled');
       // Light up segments left-to-right.
       chain.segments.forEach(function (seg, i) {
         var edge = chainBox.querySelector('[data-edge="' + seg.id + '"]');
@@ -362,6 +405,11 @@
       nextBtn.removeAttribute('disabled');
       setFeedback(0, '看清了：链条上每一段都是一个简单的局部关系。下一画面我们去拨动每一段。', 'grad');
       renderProgress();
+      renderPager();
+      setTimeout(function () {
+        seeBtn.removeAttribute('disabled');
+        isPlaying = false;
+      }, chain.segments.length * 220 + 120);
     });
     nextBtn.addEventListener('click', function () { goToScene(1); });
     return wrap;
@@ -399,11 +447,19 @@
 
     wrap.appendChild(feedbackBar(1));
 
+    chain.segments.forEach(function (seg) {
+      if (state.segmentsDone[seg.id]) {
+        markSegmentComplete(chainBox, seg.id);
+        var card = panel.querySelector('[data-local="' + seg.id + '"]');
+        if (card) card.classList.add('is-done');
+      }
+    });
+    if (allSegmentsDone()) {
+      nextBtn.removeAttribute('disabled');
+    }
+
     function handleSegment(seg) {
-      var edge = chainBox.querySelector('[data-edge="' + seg.id + '"]');
-      var tag = chainBox.querySelector('[data-tag="' + seg.id + '"]');
-      if (edge) edge.classList.add('is-hot');
-      if (tag) tag.classList.add('is-hot');
+      markSegmentComplete(chainBox, seg.id);
       pulseChainSegment(chainBox, seg.id, '#7c3aed');
       var card = panel.querySelector('[data-local="' + seg.id + '"]');
       if (card) card.classList.add('is-done');
@@ -414,6 +470,7 @@
         setFeedback(1, '四段局部都试过了。下一画面把它们按顺序乘起来，就是链式法则。', 'update');
       }
       renderProgress();
+      renderPager();
     }
 
     chain.segments.forEach(function (seg) {
@@ -497,6 +554,18 @@
       result.classList.remove('is-shown');
     }
 
+    function fillSlots() {
+      chain.productOrder.forEach(function (segId) {
+        var slot = mul.querySelector('[data-slot="' + segId + '"]');
+        var seg = chain.segments.find(function (s) { return s.id === segId; });
+        if (slot && seg) {
+          slot.classList.add('is-filled');
+          slot.textContent = seg.label;
+        }
+      });
+      result.classList.add('is-shown');
+    }
+
     function composeOnce() {
       resetSlots();
       // Pulse along the chain in reverse direction (Loss -> w) to mirror backprop
@@ -517,6 +586,7 @@
         nextBtn.removeAttribute('disabled');
         setFeedback(2, '链式法则就是把沿途每一段局部影响乘起来，得到远处参数对 Loss 的总影响。', 'update');
         renderProgress();
+        renderPager();
       }, chain.productOrder.length * 420 + 200);
     }
 
@@ -526,6 +596,11 @@
       setFeedback(2, '清空了。再点 合成总影响，看一遍四段是怎么相乘的。', 'grad');
     });
     nextBtn.addEventListener('click', function () { goToScene(3); });
+
+    if (state.multiplyDone) {
+      fillSlots();
+      nextBtn.removeAttribute('disabled');
+    }
 
     // Optional inline video
     var media = el('div', { class: 't08-media' });
@@ -630,7 +705,10 @@
         class: 't08-net-node' + (klass ? ' ' + klass : ''),
         'data-node': kind + (idx == null ? '' : '-' + idx)
       });
-      var t = svg('text', { x: c.x, y: c.y, class: 't08-chain-label' });
+      var t = svg('text', {
+        x: c.x, y: c.y, class: 't08-chain-label',
+        'data-node-label': kind + (idx == null ? '' : '-' + idx)
+      });
       t.textContent = label;
       nodeLayer.appendChild(circle);
       nodeLayer.appendChild(t);
@@ -653,6 +731,18 @@
     pulse.classList.remove('is-active');
     void pulse.getBoundingClientRect();
     pulse.classList.add('is-active');
+  }
+
+  function highlightHiddenNode(scope, hiddenId) {
+    scope.querySelectorAll('.t08-net-node').forEach(function (n) {
+      n.classList.remove('is-active');
+    });
+    network.hidden.forEach(function (h, idx) {
+      var node = scope.querySelector('[data-node="hidden-' + idx + '"]');
+      if (!node) return;
+      node.classList.toggle('is-active', h.id === hiddenId);
+      node.classList.toggle('is-done', !!state.hiddenDone[h.id]);
+    });
   }
 
   function buildScene3() {
@@ -698,6 +788,20 @@
     hint.appendChild(el('div', { class: 't08-formula', text: 'w_i / b_i  →  z_i  →  h_i  →  y\u2032  →  L  （上一段是共享的，下一段各自不同）' }));
     wrap.appendChild(hint);
 
+    var summary = el('div', { class: 't08-panel t08-status-panel' }, [
+      el('h3', { text: '当前进度' }),
+      el('div', { class: 't08-status-line' }, [
+        el('span', { class: 't08-status-label', text: '共享回传' }),
+        el('span', { class: 't08-status-badge is-locked', text: '未开始', 'data-status': 'backprop' })
+      ]),
+      el('div', { class: 't08-status-line' }, [
+        el('span', { class: 't08-status-label', text: '隐藏神经元' }),
+        el('span', { class: 't08-status-badge is-locked', text: '0 / 3', 'data-status': 'hidden' })
+      ]),
+      el('p', { class: 't08-status-note', 'data-status-note': 'true' })
+    ]);
+    wrap.appendChild(summary);
+
     wrap.appendChild(feedbackBar(3));
 
     function fillRow(h) {
@@ -708,13 +812,45 @@
       row.querySelector('.cell-hint').textContent = h.hintW + ' / ' + h.hintB;
     }
 
+    function setStatus(key, text, className) {
+      var node = summary.querySelector('[data-status="' + key + '"]');
+      if (!node) return;
+      node.textContent = text;
+      node.className = 't08-status-badge ' + className;
+    }
+
+    function refreshScene3Status() {
+      setStatus(
+        'backprop',
+        state.backpropDone ? '已完成' : '未开始',
+        state.backpropDone ? 'is-done' : 'is-locked'
+      );
+      var hiddenCount = completedHiddenCount();
+      setStatus(
+        'hidden',
+        hiddenCount + ' / ' + network.hidden.length,
+        hiddenCount === network.hidden.length ? 'is-done' : (hiddenCount > 0 ? 'is-pending' : 'is-locked')
+      );
+      var note = summary.querySelector('[data-status-note="true"]');
+      if (note) {
+        if (!state.backpropDone) {
+          note.textContent = '先把 Loss 的影响从输出层送回隐藏层，再逐个点开神经元。';
+        } else if (!allHiddenDone()) {
+          note.textContent = '共享回传已经发生了，现在还差 ' + (network.hidden.length - hiddenCount) + ' 个隐藏神经元没有查看。';
+        } else {
+          note.textContent = '每个隐藏神经元都已经拿到自己的方向，下一节可以直接进入概念巩固。';
+        }
+      }
+    }
+
     function handleHidden(h) {
+      if (!state.backpropDone) {
+        setFeedback(3, '先点“回传到隐藏层”，让 Loss 的影响先从输出层分流下来。', 'loss');
+        return;
+      }
       // Highlight that hidden node and its input edge.
-      netBox.querySelectorAll('.t08-net-node').forEach(function (n) {
-        n.classList.remove('is-active');
-      });
-      var node = netBox.querySelector('[data-node="hidden-' + network.hidden.indexOf(h) + '"]');
-      if (node) node.classList.add('is-active');
+      state.activeHidden = h.id;
+      highlightHiddenNode(netBox, h.id);
       pulseNetEdge(netBox, 'in-' + h.id, '#7c3aed');
       state.hiddenDone[h.id] = true;
       fillRow(h);
@@ -724,14 +860,37 @@
         setFeedback(3, '每个隐藏神经元都通过同一条链式法则拿到了自己的方向。这就是反向传播之所以高效。', 'update');
       }
       renderProgress();
+      renderPager();
+      refreshScene3Status();
     }
 
     network.hidden.forEach(function (h) {
-      var node = netBox.querySelector('[data-node="hidden-' + network.hidden.indexOf(h) + '"]');
+      var ref = 'hidden-' + network.hidden.indexOf(h);
+      var node = netBox.querySelector('[data-node="' + ref + '"]');
+      var label = netBox.querySelector('[data-node-label="' + ref + '"]');
       if (node) node.addEventListener('click', function () { handleHidden(h); });
+      if (label) label.addEventListener('click', function () { handleHidden(h); });
     });
 
+    if (state.backpropDone) {
+      network.hidden.forEach(function (h) {
+        pulseNetEdge(netBox, 'out-' + h.id, '#7c3aed');
+      });
+    }
+    network.hidden.forEach(function (h) {
+      if (state.hiddenDone[h.id]) fillRow(h);
+    });
+    highlightHiddenNode(netBox, state.activeHidden);
+    if (state.backpropDone && allHiddenDone()) {
+      nextBtn.removeAttribute('disabled');
+    }
+    refreshScene3Status();
+
+    var isPlaying = false;
     backBtn.addEventListener('click', function () {
+      if (isPlaying) return;
+      isPlaying = true;
+      backBtn.setAttribute('disabled', 'disabled');
       pulseNetEdge(netBox, 'out-loss', '#dc2626');
       setTimeout(function () {
         network.hidden.forEach(function (h, i) {
@@ -741,6 +900,12 @@
       state.backpropDone = true;
       setFeedback(3, '输出层把 Loss 的影响分给每个隐藏神经元；连接越关键，回传越强。现在点开任一神经元看它自己的局部链。', 'grad');
       renderProgress();
+      renderPager();
+      refreshScene3Status();
+      setTimeout(function () {
+        backBtn.removeAttribute('disabled');
+        isPlaying = false;
+      }, network.hidden.length * 220 + 420);
     });
     nextBtn.addEventListener('click', function () { goToScene(4); });
 
@@ -779,22 +944,38 @@
         text: opt.label + '. ' + opt.text,
         'data-key': opt.key
       }), 't08_quiz_option_' + opt.key, 'quiz_choose', { option: opt.key });
+      if (state.quizChoice === opt.key) {
+        btn.classList.add(opt.correct ? 'is-correct' : 'is-wrong');
+      }
+      if (state.quizDone) {
+        btn.setAttribute('disabled', 'disabled');
+      }
       btn.addEventListener('click', function () {
         if (state.quizDone) return;
+        state.quizChoice = opt.key;
+        options.querySelectorAll('.option').forEach(function (node) {
+          node.classList.remove('is-correct', 'is-wrong');
+        });
         if (opt.correct) {
           btn.classList.add('is-correct');
           state.quizDone = true;
-          state.quizChoice = opt.key;
           setFeedback(4, opt.rightFeedback || '答得对。', 'update');
         } else {
           btn.classList.add('is-wrong');
           setFeedback(4, opt.wrong || '再想想链式法则的核心动作。', 'loss');
         }
         renderProgress();
+        renderPager();
       });
       options.appendChild(btn);
     });
     quiz.appendChild(options);
+    if (state.quizDone) {
+      quiz.appendChild(el('p', {
+        class: 't08-quiz-note',
+        text: '这道题已经答对了，T08 现在会在顶部进度里显示为“已完成”。'
+      }));
+    }
     wrap.appendChild(quiz);
 
     var summary = el('div', { class: 't08-panel' });
