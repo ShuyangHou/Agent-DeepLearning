@@ -31,6 +31,15 @@
     '一直循环：模型曲线慢慢贴上真实曲线，Loss 慢慢小下去。'
   ];
 
+  var fakeGrads = [
+    { name: '∂L/∂w23', val: -0.21 },
+    { name: '∂L/∂w22', val: 0.04 },
+    { name: '∂L/∂w21', val: -0.11 },
+    { name: '∂L/∂w13', val: 0.08 },
+    { name: '∂L/∂w12', val: -0.06 },
+    { name: '∂L/∂w11', val: -0.12 }
+  ];
+
   // ---------- helpers ----------
 
   function el(tag, attrs, children) {
@@ -77,12 +86,40 @@
     return state.feedback[idx] || { text: defaultFeedback[idx], tone: '' };
   }
 
+  function reduceMotionPreferred() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function completedEpochCount() {
+    return Object.keys(state.epochsDone).filter(function (k) {
+      return state.epochsDone[k];
+    }).length;
+  }
+
+  function allEpochsDone() {
+    return completedEpochCount() === curve.steps.length;
+  }
+
+  function currentCurveStepIndex() {
+    for (var i = curve.steps.length - 1; i >= 0; i -= 1) {
+      if (state.epochsDone[i]) return i;
+    }
+    return 0;
+  }
+
+  function sceneStatusLabel(idx) {
+    if (!canEnter(idx)) return '未解锁';
+    if (sceneReady(idx)) return '已完成';
+    if (state.scene === idx) return '当前';
+    return '已解锁';
+  }
+
   function sceneReady(idx) {
     if (idx === 0) return state.played.forward;
     if (idx === 1) return state.played.loss;
     if (idx === 2) return state.played.backward;
     if (idx === 3) return state.played.update;
-    if (idx === 4) return Object.keys(state.epochsDone).every(function (k) { return state.epochsDone[k]; });
+    if (idx === 4) return allEpochsDone() && state.quizDone;
     return false;
   }
 
@@ -101,7 +138,8 @@
     }
   }
 
-  function showScene(idx) {
+  function showScene(idx, options) {
+    options = options || {};
     if (!sceneBuilders) return;
     if (!canEnter(idx)) {
       idx = Math.min(state.maxScene, sceneBuilders.length - 1);
@@ -112,7 +150,9 @@
     sceneStack.appendChild(sceneBuilders[idx]());
     renderProgress();
     renderPager();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!options.skipScroll) {
+      window.scrollTo({ top: 0, behavior: reduceMotionPreferred() ? 'auto' : 'smooth' });
+    }
   }
 
   function sceneFromHash() {
@@ -132,8 +172,12 @@
         href: '#/scene/' + (idx + 1),
         text: (idx + 1) + ' · ' + sc.pill
       });
+      btn.setAttribute('aria-label', '第 ' + (idx + 1) + ' 节，' + sc.pill + '，状态：' + sceneStatusLabel(idx));
       btn.classList.toggle('is-active', state.scene === idx);
       btn.classList.toggle('is-done', sceneReady(idx));
+      if (state.scene === idx) {
+        btn.setAttribute('aria-current', 'step');
+      }
       if (!canEnter(idx)) {
         btn.setAttribute('aria-disabled', 'true');
         btn.classList.add('is-locked');
@@ -397,6 +441,16 @@
     if (node) node.textContent = value;
   }
 
+  function renderGradRows(scope) {
+    fakeGrads.forEach(function (g) {
+      var row = scope.querySelector('[data-grad="' + g.name + '"]');
+      if (!row) return;
+      row.style.opacity = '1';
+      var v = row.querySelector('.value');
+      if (v) v.textContent = (g.val > 0 ? '+' : '') + g.val.toFixed(2);
+    });
+  }
+
   // ---------- Scene 0: Forward ----------
 
   function buildScene0() {
@@ -448,7 +502,16 @@
 
     wrap.appendChild(feedbackBar(0));
 
+    if (state.played.forward) {
+      updateMetric(panel, '预测 y\u2032', net.predictionBefore.toFixed(2));
+      nextBtn.removeAttribute('disabled');
+    }
+
+    var isPlaying = false;
     playBtn.addEventListener('click', function () {
+      if (isPlaying) return;
+      isPlaying = true;
+      playBtn.setAttribute('disabled', 'disabled');
       pulseEdges(netBox, 'forward');
       setTimeout(function () {
         updateMetric(panel, '预测 y\u2032', net.predictionBefore.toFixed(2));
@@ -457,6 +520,9 @@
         setFeedback(0, '前向算出 y\u2032 = ' + net.predictionBefore.toFixed(2) +
                        '，离真实 ' + net.target.toFixed(2) + ' 还差不少。', 'forward');
         renderProgress();
+        renderPager();
+        playBtn.removeAttribute('disabled');
+        isPlaying = false;
       }, 900);
     });
     nextBtn.addEventListener('click', function () { goToScene(1); });
@@ -473,26 +539,21 @@
     var loss = diff * diff;
 
     var leftBox = el('div', { class: 't07-network' });
-    leftBox.style.flexDirection = 'column';
-    leftBox.style.gap = '14px';
-    leftBox.style.minHeight = '280px';
+    leftBox.classList.add('t07-stack');
     leftBox.appendChild(el('div', {
-      class: 't07-metric tone-forward',
-      style: 'font-size:18px; padding:18px 22px;'
+      class: 't07-metric t07-metric-lg tone-forward'
     }, [
       el('span', { class: 'label', text: '预测 y\u2032' }),
       el('span', { class: 'value', text: net.predictionBefore.toFixed(2) })
     ]));
     leftBox.appendChild(el('div', {
-      class: 't07-metric',
-      style: 'font-size:18px; padding:18px 22px;'
+      class: 't07-metric t07-metric-lg'
     }, [
       el('span', { class: 'label', text: '真实 y' }),
       el('span', { class: 'value', text: net.target.toFixed(2) })
     ]));
     var lossMetric = el('div', {
-      class: 't07-metric tone-loss',
-      style: 'font-size:18px; padding:18px 22px;'
+      class: 't07-metric t07-metric-lg tone-loss'
     }, [
       el('span', { class: 'label', text: 'Loss = (y − y\u2032)\u00B2' }),
       el('span', { class: 'value', text: '—', 'data-metric-value': 'Loss' })
@@ -504,7 +565,7 @@
     panel.appendChild(el('h3', { text: 'Loss 是什么' }));
     var note = el('p', {
       text: '把预测和真实之间的差变成一个具体数字。这个数字越大，模型说明欠改得越多；它也是反向传播的“起点信号”。',
-      style: 'margin:0; color:var(--t07-muted); font-size:14px; line-height:1.6;'
+      class: 't07-note'
     });
     panel.appendChild(note);
     var actions = el('div', { class: 't07-actions-row' });
@@ -521,6 +582,11 @@
 
     wrap.appendChild(feedbackBar(1));
 
+    if (state.played.loss) {
+      updateMetric(wrap, 'Loss', loss.toFixed(2));
+      nextBtn.removeAttribute('disabled');
+    }
+
     calcBtn.addEventListener('click', function () {
       updateMetric(wrap, 'Loss', loss.toFixed(2));
       state.played.loss = true;
@@ -528,6 +594,7 @@
       setFeedback(1, '差距 ' + diff.toFixed(2) + ' → 平方得 Loss = ' + loss.toFixed(2) +
                      '。这个数会被送回网络里逐层分摊。', 'loss');
       renderProgress();
+      renderPager();
     });
     nextBtn.addEventListener('click', function () { goToScene(2); });
     return wrap;
@@ -545,18 +612,7 @@
 
     var panel = el('div', { class: 't07-panel' });
     panel.appendChild(el('h3', { text: '每条权重拿到了多少梯度' }));
-    var gradList = el('div');
-    gradList.style.display = 'flex';
-    gradList.style.flexDirection = 'column';
-    gradList.style.gap = '8px';
-    var fakeGrads = [
-      { name: '∂L/∂w23', val: -0.21 },
-      { name: '∂L/∂w22', val: +0.04 },
-      { name: '∂L/∂w21', val: -0.11 },
-      { name: '∂L/∂w13', val: +0.08 },
-      { name: '∂L/∂w12', val: -0.06 },
-      { name: '∂L/∂w11', val: -0.12 }
-    ];
+    var gradList = el('div', { class: 't07-grad-list' });
     fakeGrads.forEach(function (g) {
       var row = el('div', {
         class: 't07-metric tone-grad',
@@ -584,7 +640,16 @@
 
     wrap.appendChild(feedbackBar(2));
 
+    if (state.played.backward) {
+      renderGradRows(gradList);
+      nextBtn.removeAttribute('disabled');
+    }
+
+    var isPlaying = false;
     playBtn.addEventListener('click', function () {
+      if (isPlaying) return;
+      isPlaying = true;
+      playBtn.setAttribute('disabled', 'disabled');
       pulseEdges(netBox, 'backward');
       fakeGrads.forEach(function (g, idx) {
         setTimeout(function () {
@@ -600,6 +665,9 @@
         nextBtn.removeAttribute('disabled');
         setFeedback(2, '梯度沿着网络逆着走了一趟，每条边都拿到了自己的 ∂L/∂w。', 'grad');
         renderProgress();
+        renderPager();
+        playBtn.removeAttribute('disabled');
+        isPlaying = false;
       }, 280 + fakeGrads.length * 140 + 250);
     });
     nextBtn.addEventListener('click', function () { goToScene(3); });
@@ -619,8 +687,7 @@
     var panel = el('div', { class: 't07-panel' });
     panel.appendChild(el('h3', { text: '更新规则' }));
     panel.appendChild(el('div', {
-      class: 't07-metric tone-update',
-      style: 'font-family:var(--ui-font-mono); font-size:15px; padding:14px 18px;'
+      class: 't07-metric t07-formula tone-update'
     }, [
       el('span', { class: 'label', text: '公式' }),
       el('span', { class: 'value', text: 'w ← w − η · ∂L/∂w' })
@@ -647,7 +714,17 @@
 
     wrap.appendChild(feedbackBar(3));
 
+    if (state.played.update) {
+      markWeightsUpdated(netBox);
+      updateMetric(wrap, 'Loss 更新后', '0.08');
+      nextBtn.removeAttribute('disabled');
+    }
+
+    var isPlaying = false;
     stepBtn.addEventListener('click', function () {
+      if (isPlaying) return;
+      isPlaying = true;
+      stepBtn.setAttribute('disabled', 'disabled');
       markWeightsUpdated(netBox);
       pulseEdges(netBox, 'forward');
       setTimeout(function () {
@@ -657,6 +734,9 @@
         setFeedback(3, '所有权重一起挪了一小步。再做一次前向，预测 y\u2032 = ' +
                         net.predictionAfter.toFixed(2) + '，Loss 从 0.34 降到 0.08。', 'update');
         renderProgress();
+        renderPager();
+        stepBtn.removeAttribute('disabled');
+        isPlaying = false;
       }, 700);
     });
     resetBtn.addEventListener('click', function () {
@@ -730,7 +810,7 @@
     loopBox.appendChild(curveBox);
 
     var rightCol = el('div', { class: 't07-loss-bars' });
-    rightCol.appendChild(el('h3', { text: 'Loss 每轮快照', style: 'margin:0; font-size:15px; color:var(--t07-ink);' }));
+    rightCol.appendChild(el('h3', { class: 't07-panel-title', text: 'Loss 每轮快照' }));
     var bars = el('div', { class: 't07-bars' });
     var maxLoss = curve.steps[0].loss;
     curve.steps.forEach(function (st, idx) {
@@ -743,12 +823,14 @@
     rightCol.appendChild(bars);
 
     var controls = el('div', { class: 't07-epoch-controls' });
+    var epochButtons = [];
     curve.steps.forEach(function (st, idx) {
       var btn = setTracking(el('button', {
         class: 't07-action ghost', type: 'button',
         text: '执行 Epoch ' + st.epoch
       }), 't07_run_epoch_' + st.epoch, 'epoch_run', { epoch: st.epoch });
       btn.addEventListener('click', function () { runEpoch(idx); });
+      epochButtons.push(btn);
       controls.appendChild(btn);
     });
     var resetBtn = setTracking(el('button', {
@@ -757,15 +839,112 @@
     resetBtn.addEventListener('click', function () { resetLoop(); });
     controls.appendChild(resetBtn);
     rightCol.appendChild(controls);
+
+    var summary = el('div', { class: 't07-status-card' }, [
+      el('h3', { class: 't07-panel-title', text: '训练进度' }),
+      el('div', { class: 't07-status-row' }, [
+        el('div', null, [
+          el('strong', { text: '4 个 Epoch' }),
+          el('p', { class: 't07-status-copy', text: '按顺序跑完，才能进入最后的概念检查。' })
+        ]),
+        el('div', { class: 't07-status-meta' }, [
+          el('span', { class: 't07-status-value', text: '0 / 4', 'data-scene4-progress': 'value' }),
+          el('span', { class: 't07-status-badge is-pending', text: '进行中', 'data-scene4-progress': 'badge' })
+        ])
+      ]),
+      el('div', { class: 't07-status-row' }, [
+        el('div', null, [
+          el('strong', { text: '检查题' }),
+          el('p', { class: 't07-status-copy', text: '答对后，这一关才算真正完成。' })
+        ]),
+        el('div', { class: 't07-status-meta' }, [
+          el('span', { class: 't07-status-value', text: '未解锁', 'data-scene4-quiz': 'value' }),
+          el('span', { class: 't07-status-badge is-locked', text: '锁定', 'data-scene4-quiz': 'badge' })
+        ])
+      ]),
+      el('p', { class: 't07-status-note', 'data-scene4-note': 'true' })
+    ]);
+    rightCol.appendChild(summary);
     loopBox.appendChild(rightCol);
 
     wrap.appendChild(loopBox);
     wrap.appendChild(feedbackBar(4));
-    wrap.appendChild(buildQuiz());
+    var quizHost = el('div', { 'data-scene4-quiz-host': 'true' });
+    wrap.appendChild(quizHost);
+
+    function setScene4Status(key, value, badgeText, badgeClass) {
+      var valueNode = summary.querySelector('[data-scene4-' + key + '="value"]');
+      var badgeNode = summary.querySelector('[data-scene4-' + key + '="badge"]');
+      if (valueNode) valueNode.textContent = value;
+      if (badgeNode) {
+        badgeNode.textContent = badgeText;
+        badgeNode.className = 't07-status-badge ' + badgeClass;
+      }
+    }
+
+    function refreshScene4() {
+      var done = completedEpochCount();
+      var stepIndex = currentCurveStepIndex();
+      pred.setAttribute('d', curvePath(curve.steps[stepIndex].line));
+
+      bars.querySelectorAll('.t07-bar').forEach(function (bar, idx) {
+        var active = !!state.epochsDone[idx];
+        bar.classList.toggle('is-done', active);
+        bar.querySelector('.fill').style.height = active
+          ? Math.round((curve.steps[idx].loss / maxLoss) * 100) + '%'
+          : '0%';
+      });
+
+      epochButtons.forEach(function (btn, idx) {
+        var completed = !!state.epochsDone[idx];
+        var unlocked = idx === 0 || !!state.epochsDone[idx - 1];
+        btn.classList.toggle('is-complete', completed);
+        btn.textContent = completed ? ('Epoch ' + curve.steps[idx].epoch + ' 已完成') : ('执行 Epoch ' + curve.steps[idx].epoch);
+        if (!completed && !unlocked) {
+          btn.setAttribute('disabled', 'disabled');
+          btn.setAttribute('title', '先完成前面的 epoch');
+        } else {
+          btn.removeAttribute('disabled');
+          btn.removeAttribute('title');
+        }
+      });
+
+      setScene4Status(
+        'progress',
+        done + ' / ' + curve.steps.length,
+        allEpochsDone() ? '已完成' : '进行中',
+        allEpochsDone() ? 'is-done' : 'is-pending'
+      );
+      setScene4Status(
+        'quiz',
+        allEpochsDone() ? (state.quizDone ? '已完成' : '待作答') : '未解锁',
+        allEpochsDone() ? (state.quizDone ? '通过' : '待完成') : '锁定',
+        allEpochsDone() ? (state.quizDone ? 'is-done' : 'is-pending') : 'is-locked'
+      );
+
+      var note = summary.querySelector('[data-scene4-note="true"]');
+      if (note) {
+        if (!allEpochsDone()) {
+          note.textContent = '先把 4 轮训练跑完，再做最后一道检查题。';
+        } else if (!state.quizDone) {
+          note.textContent = '训练循环已经走通了，现在用一道题把概念收束住。';
+        } else {
+          note.textContent = '训练循环和概念检查都已完成，可以通过顶部进度回看任意一屏。';
+        }
+      }
+
+      quizHost.innerHTML = '';
+      quizHost.appendChild(allEpochsDone() ? buildQuiz(refreshScene4) : buildQuizLock());
+    }
 
     function runEpoch(idx) {
       if (idx > 0 && !state.epochsDone[idx - 1]) {
         setFeedback(4, '先把前面的 epoch 跑一遍。', 'loss');
+        return;
+      }
+      if (state.epochsDone[idx]) {
+        setFeedback(4, 'Epoch ' + curve.steps[idx].epoch + ' 已完成，可以继续下一轮或直接重置。', 'forward');
+        refreshScene4();
         return;
       }
       var st = curve.steps[idx];
@@ -775,15 +954,20 @@
       var fill = bar.querySelector('.fill');
       fill.style.height = Math.round((st.loss / maxLoss) * 100) + '%';
       state.epochsDone[idx] = true;
-      var done = Object.keys(state.epochsDone).filter(function (k) { return state.epochsDone[k]; }).length;
+      var done = completedEpochCount();
       setFeedback(4, 'Epoch ' + st.epoch + ' 跑完：Loss = ' + st.loss.toFixed(2) +
-                     '，预测曲线又贴近了一点。已完成 ' + done + ' / 4 轮。',
-                     done === 4 ? 'update' : 'grad');
+                     '，预测曲线又贴近了一点。已完成 ' + done + ' / 4 轮。' +
+                     (done === curve.steps.length ? ' 现在可以做最后的检查题了。' : ''),
+                     done === curve.steps.length ? 'update' : 'grad');
       renderProgress();
+      renderPager();
+      refreshScene4();
     }
 
     function resetLoop() {
       state.epochsDone = { 0: false, 1: false, 2: false, 3: false };
+      state.quizChoice = '';
+      state.quizDone = false;
       pred.setAttribute('d', curvePath(curve.steps[0].line));
       bars.querySelectorAll('.t07-bar').forEach(function (b) {
         b.classList.remove('is-done');
@@ -791,12 +975,15 @@
       });
       setFeedback(4, '已重置。可以重新跑一遍 4 轮训练。', '');
       renderProgress();
+      renderPager();
+      refreshScene4();
     }
 
+    refreshScene4();
     return wrap;
   }
 
-  function buildQuiz() {
+  function buildQuiz(refreshScene4) {
     var quiz = guide.quiz;
     var box = el('div', { class: 't07-quiz' });
     box.appendChild(el('h3', { text: quiz.question }));
@@ -808,6 +995,12 @@
       btn.className = 'option';
       btn.type = 'button';
       btn.innerHTML = '<strong>' + op.label + '.</strong> ' + op.text;
+      if (state.quizChoice === op.key) {
+        btn.classList.add(op.correct ? 'is-correct' : 'is-wrong');
+      }
+      if (state.quizDone) {
+        btn.setAttribute('disabled', 'disabled');
+      }
       btn.addEventListener('click', function () {
         if (state.quizDone) return;
         state.quizChoice = op.key;
@@ -818,15 +1011,34 @@
           btn.classList.add('is-correct');
           state.quizDone = true;
           setFeedback(4, '✔ 选对了，反向传播就是这样按贡献分配责任的。', 'update');
+          renderProgress();
+          renderPager();
         } else {
           btn.classList.add('is-wrong');
           setFeedback(4, '再想想：反向传播并不是均摊或只更新最后一层。', 'loss');
         }
+        if (refreshScene4) refreshScene4();
       });
       opts.appendChild(btn);
     });
     box.appendChild(opts);
+    if (state.quizDone) {
+      box.appendChild(el('p', {
+        class: 't07-quiz-note',
+        text: '检查题已通过，这一屏现在会在顶部进度中显示为“已完成”。'
+      }));
+    }
     return box;
+  }
+
+  function buildQuizLock() {
+    return el('div', { class: 't07-quiz t07-quiz-locked' }, [
+      el('h3', { text: '概念检查题将于 4 个 Epoch 全部完成后解锁' }),
+      el('p', {
+        class: 't07-quiz-note',
+        text: '先把训练循环完整跑通，再用最后一道题确认“梯度负责分配责任、参数沿反方向更新”这两个关键点。'
+      })
+    ]);
   }
 
   // ---------- mount ----------
