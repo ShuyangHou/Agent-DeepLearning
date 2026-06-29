@@ -97,6 +97,13 @@
   background: rgba(22, 163, 74, 0.08);
 }
 
+.t10-progress button.is-active.is-done,
+.t10-progress a.is-active.is-done {
+  background: var(--t10-accent);
+  color: #fff;
+  border-color: var(--t10-accent);
+}
+
 .t10-progress button[disabled],
 .t10-progress a.is-locked { opacity: 0.55; cursor: not-allowed; pointer-events: none; }
 
@@ -191,6 +198,17 @@
   background: var(--ui-bg-muted);
   color: var(--t10-ink);
   border: 1px solid var(--ui-border);
+}
+
+.t10-action.ghost.is-active {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--t10-accent);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.t10-action.ghost.is-tried:not(.is-active) {
+  border-color: rgba(22, 163, 74, 0.3);
+  color: var(--t10-ink);
 }
 
 .t10-action.warn {
@@ -605,6 +623,56 @@
   color: var(--t10-muted);
 }
 
+.t10-mlp-status {
+  background: #fff;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  padding: 12px 14px;
+}
+
+.t10-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.t10-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.t10-status-item .label {
+  font-size: 11px;
+  color: var(--t10-muted);
+  font-family: var(--ui-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.t10-status-item .value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t10-ink);
+}
+
+.t10-status-item .value.is-ready,
+.t10-status-item .value.tone-good {
+  color: var(--t10-update);
+}
+
+.t10-status-item .value.tone-warn {
+  color: var(--t10-lr);
+}
+
+.t10-status-item .value.tone-loss {
+  color: var(--t10-loss);
+}
+
+.t10-status-item .value.tone-grad {
+  color: var(--t10-grad);
+}
+
 /* 反馈条 */
 .t10-feedback {
   grid-column: 1 / -1;
@@ -656,6 +724,8 @@
   .t10-preview-card,
   .t10-action,
   .t10-progress button,
+  .t10-progress a,
+  .t10-pager-btn,
   .t10-step-preview-fill,
   .t10-mul-result,
   .t10-mul-slot,
@@ -720,4 +790,24 @@
   font-size: 14px;
   color: var(--t10-muted);
   font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .t10-pager {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .t10-pager-counter {
+    text-align: center;
+  }
+
+  .t10-pager-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .t10-status-grid {
+    grid-template-columns: 1fr;
+  }
 }

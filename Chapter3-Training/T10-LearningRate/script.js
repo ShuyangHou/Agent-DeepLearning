@@ -8,108 +8,124 @@
   var mlpCfg = guide.mlp;
   var valleyCfg = guide.valley;
   var previewCards = guide.previewCards;
-  var transitions = guide.transitions;
 
-  // ---------- 全局状态 ----------
   var state = {
     scene: 0,
     maxScene: 0,
-    // 画面 1
-    previewClicks: {},          // key -> true
+    previewClicks: {},
     s1Done: false,
-    // 画面 2
     s2Lr: lrCfg.defaults.scene1,
     s2W: 2.4,
     s2LrDrags: 0,
     s2StepCount: 0,
     s2EverStepped: false,
-    // 画面 3
     smallTrail: [],
     smallLosses: [],
     s3Done: false,
-    // 画面 4
     goodTrail: [],
     goodLosses: [],
     s4Done: false,
-    // 画面 5
     bigTrail: [],
     bigLosses: [],
     s5Done: false,
-    // 画面 6
     hugeTrail: [],
     hugeLosses: [],
     s6Done: false,
-    // 画面 7 (MLP)
     s7Theta: mlpCfg.init.slice(),
     s7Lr: lrCfg.defaults.mlpDefault,
     s7LossHistory: [helpers.mlpLoss(mlpCfg.init.slice())],
     s7StepCount: 0,
     s7LrTries: {},
+    s7BurstActive: false,
+    s7BurstToken: 0,
     s7BurstDone: false,
     s7Done: false,
+    autoSceneRuns: {},
     feedback: {}
   };
+
+  var defaultFeedback = [
+    'Open all preview cards, then move to the learning-rate scene.',
+    'Drag the eta slider a few times and take one step to compare step size.',
+    'Use a tiny eta and watch how slowly the path moves toward the valley floor.',
+    'Use a well-sized eta and compare the faster, smoother descent.',
+    'Use a larger eta and notice the oscillation around the optimum.',
+    'Use an oversized eta and watch the loss diverge.',
+    'Try at least 3 eta values, then run the 20-step burst in the MLP demo.'
+  ];
 
   var sceneStack = document.getElementById('sceneStack');
   var progressNav = document.getElementById('progressNav');
   var scenePager = document.getElementById('scenePager');
+  var sceneBuilders = null;
 
-  var sceneBuilders = null; // populated in render()
-
-  var defaultFeedback = [
-    '先把三张预告卡片都点一遍，再点 开始寻找步长 η。',
-    '拖动学习率滑杆至少 3 次，再点 走一步，亲手看一次梯度怎么变成步长。',
-    '把学习率锁到 0.005，点 用小学习率训练 30 步，留下灰色轨迹做对比。',
-    '换到 0.1，再点 用合适学习率训练 15 步，对比一下小学习率的轨迹。',
-    '换到 0.6，看小球如何在谷底两侧来回震荡。',
-    '换到 1.3，看 Loss 怎么一步比一步更糟。',
-    '至少试 3 个学习率，再点 连训 20 步，看 Loss 怎么下降。'
-  ];
-
-  // ---------- DOM 工具 ----------
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     if (attrs) {
-      Object.keys(attrs).forEach(function (k) {
-        if (k === 'class') node.className = attrs[k];
-        else if (k === 'text') node.textContent = attrs[k];
-        else if (k === 'html') node.innerHTML = attrs[k];
-        else if (k.indexOf('data-') === 0 || k === 'role' || k === 'aria-label' || k === 'type' || k === 'disabled') node.setAttribute(k, attrs[k]);
-        else if (k === 'style') node.setAttribute('style', attrs[k]);
-        else node[k] = attrs[k];
+      Object.keys(attrs).forEach(function (key) {
+        if (key === 'class') node.className = attrs[key];
+        else if (key === 'text') node.textContent = attrs[key];
+        else if (key === 'html') node.innerHTML = attrs[key];
+        else if (key === 'style') node.setAttribute('style', attrs[key]);
+        else if (key === 'disabled' || key === 'type' || key === 'href' || key === 'role' || key === 'aria-label' || key === 'aria-current' || key.indexOf('data-') === 0) node.setAttribute(key, attrs[key]);
+        else node[key] = attrs[key];
       });
     }
-    if (children) children.forEach(function (c) { if (c) node.appendChild(c); });
+    if (children) {
+      children.forEach(function (child) {
+        if (child) node.appendChild(child);
+      });
+    }
     return node;
   }
 
   function svg(tag, attrs) {
     var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    if (attrs) Object.keys(attrs).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+    if (attrs) {
+      Object.keys(attrs).forEach(function (key) {
+        node.setAttribute(key, attrs[key]);
+      });
+    }
     return node;
   }
 
-  function setTracking(node, id, eventName, props) {
+  function setTracking(node, id, clickName, props) {
     node.setAttribute('data-tr-id', id);
-    if (eventName) node.setAttribute('data-tr-click', eventName);
+    if (clickName) node.setAttribute('data-tr-click', clickName);
     if (props) node.setAttribute('data-tr-props', JSON.stringify(props));
     return node;
-  }
-
-  function setFeedback(sceneIdx, message, tone) {
-    state.feedback[sceneIdx] = { text: message, tone: tone || '' };
-    var bar = document.querySelector('[data-feedback-for="' + sceneIdx + '"]');
-    if (bar) {
-      bar.textContent = message;
-      bar.className = 't10-feedback' + (tone ? ' tone-' + tone : '');
-    }
   }
 
   function feedbackFor(idx) {
     return state.feedback[idx] || { text: defaultFeedback[idx], tone: '' };
   }
 
-  // ---------- 进入条件 ----------
+  function setFeedback(idx, text, tone) {
+    state.feedback[idx] = { text: text, tone: tone || '' };
+    var bar = document.querySelector('[data-feedback-for="' + idx + '"]');
+    if (!bar) return;
+    bar.textContent = text;
+    bar.className = 't10-feedback' + (tone ? ' tone-' + tone : '');
+  }
+
+  function reduceMotionPreferred() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function clampValleyW(w) {
+    return Math.max(-3.2, Math.min(3.2, w));
+  }
+
+  function cancelAutoSceneRun(idx) {
+    if (idx >= 2 && idx <= 5) {
+      state.autoSceneRuns[idx] = (state.autoSceneRuns[idx] || 0) + 1;
+    }
+  }
+
+  function triedMlpLrCount() {
+    return Object.keys(state.s7LrTries).length;
+  }
+
   function sceneReady(idx) {
     if (idx === 0) return state.s1Done;
     if (idx === 1) return state.s2EverStepped && state.s2LrDrags >= 3 && state.s2StepCount >= 1;
@@ -126,20 +142,28 @@
     return sceneReady(idx - 1) || idx <= state.maxScene;
   }
 
+  function sceneStatusLabel(idx) {
+    if (!canEnter(idx)) return 'locked';
+    if (sceneReady(idx)) return 'done';
+    if (state.scene === idx) return 'current';
+    return 'unlocked';
+  }
+
   function goToScene(idx) {
     if (!canEnter(idx)) return;
     var target = '#/scene/' + (idx + 1);
-    if (location.hash !== target) {
-      location.hash = target;
-    } else {
-      showScene(idx);
-    }
+    if (location.hash !== target) location.hash = target;
+    else showScene(idx);
   }
 
-  function showScene(idx) {
+  function showScene(idx, options) {
+    options = options || {};
     if (!sceneBuilders) return;
-    if (!canEnter(idx)) {
-      idx = Math.min(state.maxScene, sceneBuilders.length - 1);
+    if (!canEnter(idx)) idx = Math.min(state.maxScene, sceneBuilders.length - 1);
+    if (state.scene !== idx) {
+      cancelAutoSceneRun(state.scene);
+      if (state.scene === 6) state.s7BurstToken += 1;
+      state.s7BurstActive = false;
     }
     state.scene = idx;
     state.maxScene = Math.max(state.maxScene, idx);
@@ -147,31 +171,34 @@
     sceneStack.appendChild(sceneBuilders[idx]());
     renderProgress();
     renderPager();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!options.skipScroll) {
+      window.scrollTo({ top: 0, behavior: reduceMotionPreferred() ? 'auto' : 'smooth' });
+    }
   }
 
   function sceneFromHash() {
-    var m = (location.hash || '').match(/#\/scene\/(\d+)/);
-    if (!m) return 0;
-    var n = parseInt(m[1], 10);
-    if (isNaN(n)) return 0;
-    return Math.max(0, Math.min(scenes.length - 1, n - 1));
+    var match = (location.hash || '').match(/#\/scene\/(\d+)/);
+    if (!match) return 0;
+    var idx = parseInt(match[1], 10) - 1;
+    if (isNaN(idx)) return 0;
+    return Math.max(0, Math.min(scenes.length - 1, idx));
   }
 
-  // ---------- 进度条 ----------
   function renderProgress() {
     progressNav.innerHTML = '';
-    scenes.forEach(function (sc, idx) {
-      var btn = el('a', { href: '#/scene/' + (idx + 1), text: (idx + 1) + ' · ' + sc.pill });
+    scenes.forEach(function (scene, idx) {
+      var btn = el('a', { href: '#/scene/' + (idx + 1), text: (idx + 1) + ' | ' + scene.pill });
+      btn.setAttribute('aria-label', 'Scene ' + (idx + 1) + ': ' + scene.pill + ' (' + sceneStatusLabel(idx) + ')');
       btn.classList.toggle('is-active', state.scene === idx);
       btn.classList.toggle('is-done', sceneReady(idx));
+      if (state.scene === idx) btn.setAttribute('aria-current', 'step');
       if (!canEnter(idx)) {
-        btn.setAttribute('aria-disabled', 'true');
         btn.classList.add('is-locked');
+        btn.setAttribute('aria-disabled', 'true');
       }
       setTracking(btn, 't10_progress_step_' + (idx + 1), 'progress_jump', { scene: idx + 1 });
-      btn.addEventListener('click', function (ev) {
-        ev.preventDefault();
+      btn.addEventListener('click', function (event) {
+        event.preventDefault();
         goToScene(idx);
       });
       progressNav.appendChild(btn);
@@ -185,61 +212,45 @@
     var prevIdx = idx - 1;
     var nextIdx = idx + 1;
 
-    var prev = el('button', {
-      class: 't10-pager-btn ghost',
-      type: 'button',
-      text: '\u2190 \u4e0a\u4e00\u8282'
-    });
-    if (prevIdx < 0) {
-      prev.setAttribute('disabled', 'disabled');
-    } else {
-      prev.title = scenes[prevIdx] ? scenes[prevIdx].pill : '';
-      prev.addEventListener('click', function () { goToScene(prevIdx); });
-    }
-    setTracking(prev, 't10_pager_prev', 'pager_prev', { scene: idx + 1 });
+    var prevBtn = el('button', { class: 't10-pager-btn ghost', type: 'button', text: 'Prev' });
+    if (prevIdx < 0) prevBtn.setAttribute('disabled', 'disabled');
+    else prevBtn.addEventListener('click', function () { goToScene(prevIdx); });
+    setTracking(prevBtn, 't10_pager_prev', 'pager_prev', { scene: idx + 1 });
 
     var counter = el('span', {
       class: 't10-pager-counter',
-      text: (idx + 1) + ' / ' + scenes.length + ' · ' + (scenes[idx] ? scenes[idx].pill : '')
+      text: (idx + 1) + ' / ' + scenes.length + ' | ' + scenes[idx].pill
     });
 
-    var next = el('button', {
-      class: 't10-pager-btn primary',
-      type: 'button',
-      text: '\u4e0b\u4e00\u8282 \u2192'
-    });
-    if (nextIdx >= scenes.length) {
-      next.setAttribute('disabled', 'disabled');
-    } else if (!canEnter(nextIdx)) {
-      next.setAttribute('disabled', 'disabled');
-      next.title = '\u5148\u5b8c\u6210\u5f53\u524d\u5c0f\u8282\u7684\u4e92\u52a8';
-    } else {
-      next.title = scenes[nextIdx] ? scenes[nextIdx].pill : '';
-      next.addEventListener('click', function () { goToScene(nextIdx); });
-    }
-    setTracking(next, 't10_pager_next', 'pager_next', { scene: idx + 1 });
+    var nextBtn = el('button', { class: 't10-pager-btn primary', type: 'button', text: 'Next' });
+    if (nextIdx >= scenes.length) nextBtn.setAttribute('disabled', 'disabled');
+    else if (!canEnter(nextIdx)) {
+      nextBtn.setAttribute('disabled', 'disabled');
+      nextBtn.title = 'Finish this scene first';
+    } else nextBtn.addEventListener('click', function () { goToScene(nextIdx); });
+    setTracking(nextBtn, 't10_pager_next', 'pager_next', { scene: idx + 1 });
 
-    scenePager.appendChild(prev);
+    scenePager.appendChild(prevBtn);
     scenePager.appendChild(counter);
-    scenePager.appendChild(next);
+    scenePager.appendChild(nextBtn);
   }
 
-  // ---------- 共享：场景头 + 反馈条 ----------
   function sceneHead(idx) {
-    var s = scenes[idx];
+    var scene = scenes[idx];
     var head = el('div', { class: 't10-scene-head' });
     var left = el('div', null, [
-      el('span', { class: 'pill', text: s.pill }),
-      el('h2', { text: s.title }),
-      el('p', { class: 't10-goal', text: s.goal }),
-      el('p', { class: 't10-concept', text: s.concept })
+      el('span', { class: 'pill', text: scene.pill }),
+      el('h2', { text: scene.title }),
+      el('p', { class: 't10-goal', text: scene.goal }),
+      el('p', { class: 't10-concept', text: scene.concept })
     ]);
-    var ul = el('ul', { class: 't10-tasks' });
-    s.tasks.forEach(function (t) { ul.appendChild(el('li', { text: t })); });
-    left.appendChild(ul);
-    var tagWrap = el('div', null, [ el('div', { class: 'tag', text: s.tag }) ]);
+    var tasks = el('ul', { class: 't10-tasks' });
+    scene.tasks.forEach(function (task) {
+      tasks.appendChild(el('li', { text: task }));
+    });
+    left.appendChild(tasks);
     head.appendChild(left);
-    head.appendChild(tagWrap);
+    head.appendChild(el('div', null, [el('div', { class: 'tag', text: scene.tag })]));
     return head;
   }
 
@@ -252,153 +263,157 @@
     });
   }
 
-  // ---------- 山谷 SVG 共享构造 ----------
-  // 坐标系：x ∈ [wMin, wMax] -> [margin.left, W - margin.right]
-  //         loss ∈ [0, lossMax] -> [H - margin.bottom, margin.top]
-  function makeValleySvg(opts) {
-    opts = opts || {};
-    var W = 640, H = 280;
-    var mL = 44, mR = 24, mT = 18, mB = 36;
-    var iw = W - mL - mR, ih = H - mT - mB;
-    var wMin = valleyCfg.wMin, wMax = valleyCfg.wMax, lossMax = valleyCfg.lossMax;
+  function makeValleySvg() {
+    var W = 640;
+    var H = 280;
+    var mL = 44;
+    var mR = 24;
+    var mT = 18;
+    var mB = 36;
+    var iw = W - mL - mR;
+    var ih = H - mT - mB;
+    var wMin = valleyCfg.wMin;
+    var wMax = valleyCfg.wMax;
+    var lossMax = valleyCfg.lossMax;
 
     function xOf(w) { return mL + (w - wMin) / (wMax - wMin) * iw; }
-    function yOf(l) { return mT + (1 - Math.min(l, lossMax) / lossMax) * ih; }
+    function yOf(loss) { return mT + (1 - Math.min(loss, lossMax) / lossMax) * ih; }
 
     var root = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'xMidYMid meet' });
-
-    // defs：箭头
     var defs = svg('defs');
-    var mkHead = function (id, color) {
-      var m = svg('marker', { id: id, viewBox: '0 0 12 12', refX: '9', refY: '6', markerWidth: '8', markerHeight: '8', orient: 'auto-start-reverse' });
-      var p = svg('path', { d: 'M0,0 L12,6 L0,12 Z', fill: color });
-      m.appendChild(p);
-      return m;
-    };
-    defs.appendChild(mkHead('t10-arrow-grad-head', getComputedStyle(document.documentElement).getPropertyValue('--t10-grad') || '#7c3aed'));
-    defs.appendChild(mkHead('t10-arrow-update-head', getComputedStyle(document.documentElement).getPropertyValue('--t10-update') || '#16a34a'));
+
+    function marker(id, color) {
+      var mk = svg('marker', {
+        id: id,
+        viewBox: '0 0 12 12',
+        refX: '9',
+        refY: '6',
+        markerWidth: '8',
+        markerHeight: '8',
+        orient: 'auto-start-reverse'
+      });
+      mk.appendChild(svg('path', { d: 'M0,0 L12,6 L0,12 Z', fill: color }));
+      return mk;
+    }
+
+    defs.appendChild(marker('t10-arrow-grad-head', '#7c3aed'));
+    defs.appendChild(marker('t10-arrow-update-head', '#16a34a'));
     root.appendChild(defs);
 
-    // 轴
-    var axis = svg('path', { class: 't10-axis', d: 'M' + mL + ',' + (mT + ih) + ' L' + (mL + iw) + ',' + (mT + ih) });
-    var axisY = svg('path', { class: 't10-axis', d: 'M' + mL + ',' + mT + ' L' + mL + ',' + (mT + ih) });
-    root.appendChild(axis);
-    root.appendChild(axisY);
+    root.appendChild(svg('path', { class: 't10-axis', d: 'M' + mL + ',' + (mT + ih) + ' L' + (mL + iw) + ',' + (mT + ih) }));
+    root.appendChild(svg('path', { class: 't10-axis', d: 'M' + mL + ',' + mT + ' L' + mL + ',' + (mT + ih) }));
 
-    // 刻度
-    [-3, -2, -1, 0, 1, 2, 3].forEach(function (tw) {
-      var x = xOf(tw);
+    [-3, -2, -1, 0, 1, 2, 3].forEach(function (tick) {
+      var x = xOf(tick);
       root.appendChild(svg('line', { class: 't10-tick', x1: x, x2: x, y1: mT + ih, y2: mT + ih + 4 }));
-      var t = svg('text', { class: 't10-text', x: x, y: mT + ih + 16, 'text-anchor': 'middle' });
-      t.textContent = String(tw);
-      root.appendChild(t);
+      var text = svg('text', { class: 't10-text', x: x, y: mT + ih + 16, 'text-anchor': 'middle' });
+      text.textContent = String(tick);
+      root.appendChild(text);
     });
-    var xLab = svg('text', { class: 't10-text bold', x: mL + iw, y: mT + ih + 30, 'text-anchor': 'end' });
-    xLab.textContent = 'w';
-    root.appendChild(xLab);
-    var yLab = svg('text', { class: 't10-text bold', x: mL + 4, y: mT - 4, 'text-anchor': 'start' });
-    yLab.textContent = 'Loss';
-    root.appendChild(yLab);
 
-    // 曲线
-    var d = '';
-    var SAMPLES = 80;
-    for (var i = 0; i <= SAMPLES; i++) {
-      var w = wMin + (wMax - wMin) * i / SAMPLES;
-      var l = helpers.loss(w);
-      d += (i === 0 ? 'M' : 'L') + xOf(w).toFixed(2) + ',' + yOf(l).toFixed(2) + ' ';
+    var xLabel = svg('text', { class: 't10-text bold', x: mL + iw, y: mT + ih + 30, 'text-anchor': 'end' });
+    xLabel.textContent = 'w';
+    root.appendChild(xLabel);
+
+    var yLabel = svg('text', { class: 't10-text bold', x: mL + 4, y: mT - 4, 'text-anchor': 'start' });
+    yLabel.textContent = 'Loss';
+    root.appendChild(yLabel);
+
+    var path = '';
+    var samples = 80;
+    for (var i = 0; i <= samples; i++) {
+      var w = wMin + (wMax - wMin) * i / samples;
+      path += (i === 0 ? 'M' : 'L') + xOf(w).toFixed(2) + ',' + yOf(helpers.loss(w)).toFixed(2) + ' ';
     }
-    var curve = svg('path', { class: 't10-valley-curve', d: d });
-    root.appendChild(curve);
+    root.appendChild(svg('path', { class: 't10-valley-curve', d: path }));
 
-    // 目标点
-    var ring = svg('circle', { class: 't10-target-ring', cx: xOf(valleyCfg.wStar), cy: yOf(0), r: 9 });
-    root.appendChild(ring);
-    var tStar = svg('text', { class: 't10-text', x: xOf(valleyCfg.wStar), y: yOf(0) + 24, 'text-anchor': 'middle' });
-    tStar.textContent = 'w* = 0';
-    root.appendChild(tStar);
+    root.appendChild(svg('circle', {
+      class: 't10-target-ring',
+      cx: xOf(valleyCfg.wStar),
+      cy: yOf(0),
+      r: 9
+    }));
+    var star = svg('text', { class: 't10-text', x: xOf(valleyCfg.wStar), y: yOf(0) + 24, 'text-anchor': 'middle' });
+    star.textContent = 'w* = 0';
+    root.appendChild(star);
 
-    return {
-      root: root, xOf: xOf, yOf: yOf, W: W, H: H,
-      margin: { left: mL, right: mR, top: mT, bottom: mB }, ih: ih, iw: iw
-    };
+    return { root: root, xOf: xOf, yOf: yOf };
   }
 
-  // ---------- 共享：Loss 折线 ----------
   function makeLossChart(opts) {
     opts = opts || {};
-    var W = 540, H = 220;
-    var mL = 44, mR = 18, mT = 16, mB = 30;
-    var iw = W - mL - mR, ih = H - mT - mB;
+    var W = 540;
+    var H = 220;
+    var mL = 44;
+    var mR = 18;
+    var mT = 16;
+    var mB = 30;
+    var iw = W - mL - mR;
+    var ih = H - mT - mB;
     var maxSteps = opts.maxSteps || 30;
     var lossMax = opts.lossMax || valleyCfg.lossMax;
 
     function xOf(step) { return mL + (step / Math.max(1, maxSteps - 1)) * iw; }
     function yOf(loss) {
-      // 用对数+线性混合，让 0.001~lossMax 都能看清
-      var v = Math.min(loss, lossMax * 1.2);
-      var t = Math.min(1, Math.max(0, v / lossMax));
-      return mT + (1 - t) * ih;
+      var value = Math.min(loss, lossMax * 1.2);
+      return mT + (1 - Math.min(1, value / lossMax)) * ih;
     }
 
     var root = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'xMidYMid meet' });
+    root.appendChild(svg('path', { class: 't10-axis', d: 'M' + mL + ',' + (mT + ih) + ' L' + (mL + iw) + ',' + (mT + ih) }));
+    root.appendChild(svg('path', { class: 't10-axis', d: 'M' + mL + ',' + mT + ' L' + mL + ',' + (mT + ih) }));
 
-    var axisX = svg('path', { class: 't10-axis', d: 'M' + mL + ',' + (mT + ih) + ' L' + (mL + iw) + ',' + (mT + ih) });
-    var axisY = svg('path', { class: 't10-axis', d: 'M' + mL + ',' + mT + ' L' + mL + ',' + (mT + ih) });
-    root.appendChild(axisX);
-    root.appendChild(axisY);
+    var xLabel = svg('text', { class: 't10-text bold', x: mL + iw, y: mT + ih + 22, 'text-anchor': 'end' });
+    xLabel.textContent = 'step';
+    root.appendChild(xLabel);
+    var yLabel = svg('text', { class: 't10-text bold', x: mL + 4, y: mT - 4, 'text-anchor': 'start' });
+    yLabel.textContent = 'Loss';
+    root.appendChild(yLabel);
 
-    var xLab = svg('text', { class: 't10-text bold', x: mL + iw, y: mT + ih + 22, 'text-anchor': 'end' });
-    xLab.textContent = 'step';
-    root.appendChild(xLab);
-    var yLab = svg('text', { class: 't10-text bold', x: mL + 4, y: mT - 4, 'text-anchor': 'start' });
-    yLab.textContent = 'Loss';
-    root.appendChild(yLab);
-
-    // 网格
     [0.25, 0.5, 0.75].forEach(function (frac) {
       var y = mT + frac * ih;
       root.appendChild(svg('line', { class: 't10-tick', x1: mL, x2: mL + iw, y1: y, y2: y, 'stroke-dasharray': '3 5' }));
     });
 
-    return { root: root, xOf: xOf, yOf: yOf, mL: mL, mT: mT, iw: iw, ih: ih };
+    return { root: root, xOf: xOf, yOf: yOf };
   }
 
   function drawLossLine(chart, losses, klass) {
-    if (!losses || losses.length === 0) return null;
-    var d = '';
-    losses.forEach(function (l, i) {
-      d += (i === 0 ? 'M' : 'L') + chart.xOf(i).toFixed(2) + ',' + chart.yOf(l).toFixed(2) + ' ';
+    if (!losses.length) return null;
+    var path = '';
+    losses.forEach(function (value, idx) {
+      path += (idx === 0 ? 'M' : 'L') + chart.xOf(idx).toFixed(2) + ',' + chart.yOf(value).toFixed(2) + ' ';
     });
-    return svg('path', { class: 't10-chart-line' + (klass ? ' ' + klass : ''), d: d });
+    return svg('path', { class: 't10-chart-line' + (klass ? ' ' + klass : ''), d: path });
   }
 
-  // ---------- 场景 0：认识学习率 ----------
   function buildScene0() {
     var wrap = el('section', { class: 't10-scene', 'data-scene-index': 0 });
     wrap.appendChild(sceneHead(0));
 
-    // 预告卡
     var cards = el('div', { class: 't10-preview-cards' });
-    previewCards.forEach(function (c) {
+    previewCards.forEach(function (cardData) {
       var card = el('button', {
-        class: 't10-preview-card ' + c.zone,
+        class: 't10-preview-card ' + cardData.zone,
         type: 'button',
-        'data-key': c.key
+        'data-key': cardData.key
       });
-      card.appendChild(el('div', { class: 'ph', text: c.emoji }));
-      card.appendChild(el('div', { class: 'pt', text: c.title }));
-      card.appendChild(el('div', { class: 'pc', text: c.copy }));
-      setTracking(card, 't10_scene0_preview_' + c.key, 'preview_click', { key: c.key });
+      card.appendChild(el('div', { class: 'ph', text: cardData.emoji }));
+      card.appendChild(el('div', { class: 'pt', text: cardData.title }));
+      card.appendChild(el('div', { class: 'pc', text: cardData.copy }));
+      if (state.previewClicks[cardData.key]) card.classList.add('is-active');
+      setTracking(card, 't10_scene0_preview_' + cardData.key, 'preview_click', { key: cardData.key });
       card.addEventListener('click', function () {
+        state.previewClicks[cardData.key] = true;
         card.classList.add('is-active');
-        state.previewClicks[c.key] = true;
         refreshFormula();
         if (Object.keys(state.previewClicks).length >= previewCards.length) {
           nextBtn.removeAttribute('disabled');
-          setFeedback(0, '三种走法都心里有数了。学习率 η 就是这一步的「步长旋钮」。', 'good');
+          setFeedback(0, 'All three preview paths are now unlocked. Eta is the step-size knob.', 'good');
+          renderProgress();
+          renderPager();
         } else {
-          setFeedback(0, '继续看看其他两张：步长太小会拖时间，太大会跨过头。', 'grad');
+          setFeedback(0, 'Keep comparing the other cards: tiny eta is slow, huge eta can overshoot.', 'grad');
         }
       });
       cards.appendChild(card);
@@ -406,121 +421,125 @@
     wrap.appendChild(cards);
 
     var panel = el('div', { class: 't10-panel' });
-    panel.appendChild(el('h3', { text: '参数更新公式' }));
+    panel.appendChild(el('h3', { text: 'Parameter update rule' }));
     var formula = el('div', { class: 't10-formula' });
     panel.appendChild(formula);
 
     function refreshFormula() {
-      var hasAll = Object.keys(state.previewClicks).length >= previewCards.length;
-      if (hasAll) {
-        formula.innerHTML = '<span class="var">w</span><sub>新</sub> = <span class="var">w</span><sub>旧</sub> − <span class="lr">η</span> × <span class="grad">∂L/∂w</span>';
+      var complete = Object.keys(state.previewClicks).length >= previewCards.length;
+      if (complete) {
+        formula.innerHTML = '<span class="var">w</span><sub>new</sub> = <span class="var">w</span><sub>old</sub> - <span class="lr">eta</span> * <span class="grad">dL/dw</span>';
       } else {
-        formula.innerHTML = '<span class="var">w</span><sub>新</sub> = <span class="var">w</span><sub>旧</sub> − <span class="blank">? (η)</span> × <span class="grad">∂L/∂w</span>';
+        formula.innerHTML = '<span class="var">w</span><sub>new</sub> = <span class="var">w</span><sub>old</sub> - <span class="blank">?</span> * <span class="grad">dL/dw</span>';
       }
     }
-    refreshFormula();
 
+    refreshFormula();
     panel.appendChild(el('p', {
       class: 't10-concept',
-      text: '梯度 ∂L/∂w 只决定方向。决定每一步走多远的，是学习率 η。'
+      text: 'Gradient chooses direction. Learning rate chooses how far the update moves.'
     }));
 
     var actions = el('div', { class: 't10-actions-row' });
     var nextBtn = setTracking(el('button', {
-      class: 't10-action primary', type: 'button', text: '开始寻找步长 η →', disabled: 'disabled'
+      class: 't10-action primary',
+      type: 'button',
+      text: 'Start eta hunt',
+      disabled: 'disabled'
     }), 't10_scene0_next', 'scene_next');
-    actions.appendChild(nextBtn);
-    panel.appendChild(actions);
-    wrap.appendChild(panel);
-
-    wrap.appendChild(feedbackBar(0));
-
+    if (state.s1Done || Object.keys(state.previewClicks).length >= previewCards.length) {
+      nextBtn.removeAttribute('disabled');
+    }
     nextBtn.addEventListener('click', function () {
       state.s1Done = true;
       renderProgress();
+      renderPager();
       goToScene(1);
     });
+    actions.appendChild(nextBtn);
+    panel.appendChild(actions);
+    wrap.appendChild(panel);
+    wrap.appendChild(feedbackBar(0));
 
     return wrap;
   }
 
-  // ---------- 场景 1：在山谷里走一步 ----------
   function buildScene1() {
     var wrap = el('section', { class: 't10-scene', 'data-scene-index': 1 });
     wrap.appendChild(sceneHead(1));
 
     var valleyBox = el('div', { class: 't10-valley' });
-    var v = makeValleySvg();
-    valleyBox.appendChild(v.root);
+    var valley = makeValleySvg();
+    valleyBox.appendChild(valley.root);
     wrap.appendChild(valleyBox);
 
-    // 小球
-    var ball = svg('circle', { class: 't10-ball', cx: v.xOf(state.s2W), cy: v.yOf(helpers.loss(state.s2W)), r: 9 });
-    v.root.appendChild(ball);
-    // 步长箭头
+    var ball = svg('circle', {
+      class: 't10-ball',
+      cx: valley.xOf(state.s2W),
+      cy: valley.yOf(helpers.loss(state.s2W)),
+      r: 9
+    });
     var gradArrow = svg('line', { class: 't10-arrow-grad', x1: 0, y1: 0, x2: 0, y2: 0, opacity: 0 });
-    var updArrow = svg('line', { class: 't10-arrow-update', x1: 0, y1: 0, x2: 0, y2: 0, opacity: 0 });
-    v.root.appendChild(gradArrow);
-    v.root.appendChild(updArrow);
+    var updateArrow = svg('line', { class: 't10-arrow-update', x1: 0, y1: 0, x2: 0, y2: 0, opacity: 0 });
+    valley.root.appendChild(ball);
+    valley.root.appendChild(gradArrow);
+    valley.root.appendChild(updateArrow);
 
-    // 右侧控制
     var panel = el('div', { class: 't10-panel' });
-    panel.appendChild(el('h3', { text: '学习率控制器' }));
+    panel.appendChild(el('h3', { text: 'Learning-rate controller' }));
 
-    var lrCtl = el('div', { class: 't10-lr-control' });
-    var lrHead = el('div', { class: 'head' });
-    lrHead.appendChild(el('div', { class: 'name', text: '学习率 η' }));
+    var control = el('div', { class: 't10-lr-control' });
+    var head = el('div', { class: 'head' });
+    head.appendChild(el('div', { class: 'name', text: 'eta' }));
     var lrValue = el('div', { class: 't10-lr-value', text: state.s2Lr.toFixed(3) });
-    lrHead.appendChild(lrValue);
-    lrCtl.appendChild(lrHead);
+    head.appendChild(lrValue);
+    control.appendChild(head);
 
     var slider = el('input', {
-      type: 'range', class: 't10-lr-range',
-      min: '0', max: String(lrCfg.grid.length - 1), step: '1',
-      value: String(lrCfg.grid.indexOf(state.s2Lr) >= 0 ? lrCfg.grid.indexOf(state.s2Lr) : 4)
+      type: 'range',
+      class: 't10-lr-range',
+      min: '0',
+      max: String(lrCfg.grid.length - 1),
+      step: '1',
+      value: String(Math.max(0, lrCfg.grid.indexOf(state.s2Lr)))
     });
-    setTracking(slider, 't10_scene1_lr', 'lr_change');
-    lrCtl.appendChild(slider);
+    control.appendChild(slider);
 
     var marks = el('div', { class: 't10-lr-marks' });
-    marks.appendChild(el('span', { text: '0.001' }));
-    marks.appendChild(el('span', { text: '0.1' }));
-    marks.appendChild(el('span', { text: '0.6' }));
-    marks.appendChild(el('span', { text: '1.6' }));
-    lrCtl.appendChild(marks);
+    ['0.001', '0.1', '0.6', '1.6'].forEach(function (mark) {
+      marks.appendChild(el('span', { text: mark }));
+    });
+    control.appendChild(marks);
 
     var region = el('div', { class: 't10-lr-region' });
-    lrCtl.appendChild(region);
+    control.appendChild(region);
 
     var preview = el('div', { class: 't10-step-preview' });
-    var previewFill = el('div', { class: 't10-step-preview-fill', style: 'width: 20%' });
+    var previewFill = el('div', { class: 't10-step-preview-fill', style: 'width: 12%' });
     preview.appendChild(previewFill);
-    lrCtl.appendChild(preview);
+    control.appendChild(preview);
+    panel.appendChild(control);
 
-    panel.appendChild(lrCtl);
-
-    // 状态卡
     var card = el('div', { class: 't10-step-card' });
-    function statCell(k, v, klass) {
-      card.appendChild(el('div', { class: 'k', text: k }));
-      card.appendChild(el('div', { class: 'v ' + (klass || ''), text: v }));
+    function statCell(label, value, klass) {
+      card.appendChild(el('div', { class: 'k', text: label }));
+      card.appendChild(el('div', { class: 'v ' + (klass || ''), text: value }));
     }
-    statCell('w 当前', state.s2W.toFixed(3));
-    statCell('梯度 g', helpers.grad(state.s2W).toFixed(3), 'grad');
-    statCell('η × g', (state.s2Lr * helpers.grad(state.s2W)).toFixed(3), 'lr');
+    statCell('w current', state.s2W.toFixed(3));
+    statCell('grad g', helpers.grad(state.s2W).toFixed(3), 'grad');
+    statCell('eta * g', (state.s2Lr * helpers.grad(state.s2W)).toFixed(3), 'lr');
     statCell('Loss', helpers.loss(state.s2W).toFixed(3), 'loss');
     panel.appendChild(card);
 
     var actions = el('div', { class: 't10-actions-row' });
-    var stepBtn = setTracking(el('button', { class: 't10-action primary', type: 'button', text: '走一步' }), 't10_scene1_step', 'one_step');
-    var resetBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: '把小球放回起点' }), 't10_scene1_reset', 'reset_ball');
-    var nextBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: '试试很小的学习率 →', disabled: 'disabled' }), 't10_scene1_next', 'scene_next');
+    var stepBtn = setTracking(el('button', { class: 't10-action primary', type: 'button', text: 'Step once' }), 't10_scene1_step', 'one_step');
+    var resetBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'Reset ball' }), 't10_scene1_reset', 'reset_ball');
+    var nextBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'Try tiny eta', disabled: 'disabled' }), 't10_scene1_next', 'scene_next');
     actions.appendChild(stepBtn);
     actions.appendChild(resetBtn);
     actions.appendChild(nextBtn);
     panel.appendChild(actions);
     wrap.appendChild(panel);
-
     wrap.appendChild(feedbackBar(1));
 
     function updateCard() {
@@ -533,86 +552,98 @@
 
     function updateLrUi() {
       var zone = helpers.lrZone(state.s2Lr);
-      region.textContent = '区域：' + zone.label;
+      region.textContent = zone.label;
       region.className = 't10-lr-region zone-' + zone.key;
       lrValue.textContent = state.s2Lr.toFixed(3);
-      var pct = Math.min(100, Math.max(6, (state.s2Lr / lrCfg.max) * 100));
-      previewFill.style.width = pct.toFixed(0) + '%';
+      previewFill.style.width = Math.min(100, Math.max(6, (state.s2Lr / lrCfg.max) * 100)).toFixed(0) + '%';
     }
 
-    function showArrows() {
-      var g = helpers.grad(state.s2W);
-      var step = state.s2Lr * g;
-      var wNext = state.s2W - step;
-      var x0 = v.xOf(state.s2W), y0 = v.yOf(helpers.loss(state.s2W));
-      var xG = v.xOf(state.s2W + Math.sign(g) * Math.min(0.9, Math.abs(g) * 0.6));
-      var xU = v.xOf(wNext);
-      gradArrow.setAttribute('x1', x0); gradArrow.setAttribute('y1', y0 - 16);
-      gradArrow.setAttribute('x2', xG); gradArrow.setAttribute('y2', y0 - 16);
-      gradArrow.setAttribute('opacity', '1');
-      updArrow.setAttribute('x1', x0); updArrow.setAttribute('y1', y0 + 18);
-      updArrow.setAttribute('x2', xU); updArrow.setAttribute('y2', y0 + 18);
-      updArrow.setAttribute('opacity', '1');
+    function updateNextState() {
+      if (state.s2LrDrags >= 3 && state.s2StepCount >= 1) {
+        nextBtn.removeAttribute('disabled');
+        renderProgress();
+        renderPager();
+      } else {
+        nextBtn.setAttribute('disabled', 'disabled');
+      }
+    }
+
+    function showArrows(fromW, toW, faded) {
+      var g = helpers.grad(fromW);
+      var x0 = valley.xOf(fromW);
+      var y0 = valley.yOf(helpers.loss(fromW));
+      var xG = valley.xOf(fromW + Math.sign(g) * Math.min(0.9, Math.abs(g) * 0.6));
+      var xU = valley.xOf(toW);
+      gradArrow.setAttribute('x1', x0);
+      gradArrow.setAttribute('y1', y0 - 16);
+      gradArrow.setAttribute('x2', xG);
+      gradArrow.setAttribute('y2', y0 - 16);
+      gradArrow.setAttribute('opacity', faded ? '0.25' : '1');
+      updateArrow.setAttribute('x1', x0);
+      updateArrow.setAttribute('y1', y0 + 18);
+      updateArrow.setAttribute('x2', xU);
+      updateArrow.setAttribute('y2', y0 + 18);
+      updateArrow.setAttribute('opacity', faded ? '0.25' : '1');
     }
 
     slider.addEventListener('input', function () {
       var idx = parseInt(slider.value, 10);
-      var nv = lrCfg.grid[idx];
-      if (nv !== state.s2Lr) {
-        state.s2Lr = nv;
-        state.s2LrDrags += 1;
-        updateLrUi();
-        updateCard();
-        if (state.s2LrDrags >= 3 && state.s2StepCount >= 1) {
-          nextBtn.removeAttribute('disabled');
-        }
-        setFeedback(1, '当前 η = ' + state.s2Lr.toFixed(3) + '，' + helpers.lrZone(state.s2Lr).label + '。点 走一步 试试。', helpers.lrZone(state.s2Lr).tone);
-      }
+      var nextLr = lrCfg.grid[idx];
+      if (nextLr === state.s2Lr) return;
+      state.s2Lr = nextLr;
+      state.s2LrDrags += 1;
+      updateLrUi();
+      updateCard();
+      if (state.s2EverStepped) showArrows(state.s2W, helpers.gdStep(state.s2W, state.s2Lr).to, true);
+      updateNextState();
+      setFeedback(1, 'Current eta = ' + state.s2Lr.toFixed(3) + ' (' + helpers.lrZone(state.s2Lr).label + '). Take one step to compare.', helpers.lrZone(state.s2Lr).tone);
     });
 
     stepBtn.addEventListener('click', function () {
-      showArrows();
-      var st = helpers.gdStep(state.s2W, state.s2Lr);
-      state.s2W = st.to;
+      var step = helpers.gdStep(state.s2W, state.s2Lr);
+      showArrows(state.s2W, step.to, false);
+      state.s2W = step.to;
       state.s2StepCount += 1;
       state.s2EverStepped = true;
-      ball.setAttribute('cx', v.xOf(state.s2W));
-      ball.setAttribute('cy', v.yOf(helpers.loss(state.s2W)));
+      ball.setAttribute('cx', valley.xOf(state.s2W));
+      ball.setAttribute('cy', valley.yOf(helpers.loss(state.s2W)));
       updateCard();
-      if (state.s2LrDrags >= 3 && state.s2StepCount >= 1) {
-        nextBtn.removeAttribute('disabled');
-      }
-      setTimeout(function () {
+      updateNextState();
+      window.setTimeout(function () {
         gradArrow.setAttribute('opacity', '0.25');
-        updArrow.setAttribute('opacity', '0.25');
+        updateArrow.setAttribute('opacity', '0.25');
       }, 700);
-      setFeedback(1, 'η × g = ' + st.step.toFixed(3) + '，方向由梯度决定，步长由 η 决定。', 'update');
+      setFeedback(1, 'Eta times gradient = ' + step.step.toFixed(3) + '. Gradient gives direction, eta sets distance.', 'update');
       renderProgress();
+      renderPager();
     });
 
     resetBtn.addEventListener('click', function () {
       state.s2W = 2.4;
-      ball.setAttribute('cx', v.xOf(state.s2W));
-      ball.setAttribute('cy', v.yOf(helpers.loss(state.s2W)));
+      ball.setAttribute('cx', valley.xOf(state.s2W));
+      ball.setAttribute('cy', valley.yOf(helpers.loss(state.s2W)));
       gradArrow.setAttribute('opacity', '0');
-      updArrow.setAttribute('opacity', '0');
+      updateArrow.setAttribute('opacity', '0');
       updateCard();
-      setFeedback(1, '已经把小球放回 w = 2.4，再选一个 η 试试。', 'grad');
+      updateNextState();
+      setFeedback(1, 'Ball reset to w = 2.4. Try another eta value.', 'grad');
     });
 
     nextBtn.addEventListener('click', function () { goToScene(2); });
 
     updateLrUi();
+    updateCard();
+    updateNextState();
+    if (state.s2EverStepped) showArrows(state.s2W, helpers.gdStep(state.s2W, state.s2Lr).to, true);
+
     return wrap;
   }
 
-  // ---------- 共享：四个 “autorun” 场景的工厂 ----------
-  // tone: 'good' | 'warn' | 'loss'
   function buildAutoScene(opts) {
     var idx = opts.sceneIndex;
     var lr = opts.lr;
     var steps = opts.steps;
-    var trailField = opts.trailField;       // state 里存放 trail 的字段名
+    var trailField = opts.trailField;
     var lossField = opts.lossField;
     var doneField = opts.doneField;
     var startW = opts.startW != null ? opts.startW : 2.4;
@@ -620,49 +651,56 @@
     var lineClass = opts.lineClass || '';
     var btnLabel = opts.btnLabel;
     var nextLabel = opts.nextLabel;
-    var warn = opts.warn;
+    var warn = !!opts.warn;
+    var warnText = opts.warnText || '';
     var feedbackDone = opts.feedbackDone;
-    var ghosts = opts.ghosts || [];          // [{trail, losses, label, color}]
     var feedbackTone = opts.feedbackTone || 'good';
+    var ghosts = opts.ghosts || [];
+    var runDelay = warn ? 320 : 180;
 
     var wrap = el('section', { class: 't10-scene', 'data-scene-index': idx });
     wrap.appendChild(sceneHead(idx));
 
     var valleyBox = el('div', { class: 't10-valley' });
-    var v = makeValleySvg();
-    valleyBox.appendChild(v.root);
+    var valley = makeValleySvg();
+    valleyBox.appendChild(valley.root);
     wrap.appendChild(valleyBox);
 
-    // 先画 ghost 轨迹
     var ghostLayer = svg('g', { class: 't10-trail ghost' });
-    v.root.appendChild(ghostLayer);
-    ghosts.forEach(function (g) {
-      g.trail.forEach(function (w, i) {
-        ghostLayer.appendChild(svg('circle', { cx: v.xOf(w), cy: v.yOf(helpers.loss(w)), r: 3.5 }));
+    valley.root.appendChild(ghostLayer);
+    ghosts.forEach(function (ghost) {
+      ghost.trail.forEach(function (w) {
+        ghostLayer.appendChild(svg('circle', {
+          cx: valley.xOf(clampValleyW(w)),
+          cy: valley.yOf(helpers.loss(clampValleyW(w))),
+          r: 3.5
+        }));
       });
     });
 
     var trailLayer = svg('g', { class: 't10-trail' + (trailClass ? ' ' + trailClass : '') });
-    v.root.appendChild(trailLayer);
+    valley.root.appendChild(trailLayer);
 
-    var ball = svg('circle', { class: 't10-ball', cx: v.xOf(startW), cy: v.yOf(helpers.loss(startW)), r: 9 });
-    v.root.appendChild(ball);
+    var ball = svg('circle', {
+      class: 't10-ball',
+      cx: valley.xOf(startW),
+      cy: valley.yOf(helpers.loss(startW)),
+      r: 9
+    });
+    valley.root.appendChild(ball);
 
     var panel = el('div', { class: 't10-panel' });
-    panel.appendChild(el('h3', { text: '锁定学习率 η = ' + lr.toFixed(3) }));
+    panel.appendChild(el('h3', { text: 'Locked eta = ' + lr.toFixed(3) }));
     panel.appendChild(el('div', {
       class: 't10-formula',
-      html: '<span class="lr">η</span> = ' + lr.toFixed(3) +
-            '   ·   连续走 <span class="var">' + steps + '</span> 步' +
-            (ghosts.length ? '<br/><span class="blank">灰色：上一组学习率留下的轨迹</span>' : '')
+      html: '<span class="lr">eta</span> = ' + lr.toFixed(3) + ' | run <span class="var">' + steps + '</span> steps' + (ghosts.length ? '<br><span class="blank">gray path = previous comparison</span>' : '')
     }));
-
-    var counter = el('div', { class: 't10-formula', text: '已走 0 / ' + steps + ' 步' });
+    var counter = el('div', { class: 't10-formula', text: 'Steps 0 / ' + steps });
     panel.appendChild(counter);
 
     var actions = el('div', { class: 't10-actions-row' });
     var runBtn = setTracking(el('button', { class: 't10-action ' + (warn ? 'warn' : 'primary'), type: 'button', text: btnLabel }), 't10_scene' + idx + '_run', 'auto_run', { lr: lr });
-    var resetBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: '重置' }), 't10_scene' + idx + '_reset', 'reset_run');
+    var resetBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'Reset' }), 't10_scene' + idx + '_reset', 'reset_run');
     var nextBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: nextLabel, disabled: 'disabled' }), 't10_scene' + idx + '_next', 'scene_next');
     actions.appendChild(runBtn);
     actions.appendChild(resetBtn);
@@ -670,103 +708,131 @@
     panel.appendChild(actions);
     wrap.appendChild(panel);
 
-    // Loss 折线
     var chartBox = el('div', { class: 't10-chart' });
     var chart = makeLossChart({ maxSteps: Math.max(steps, 30), lossMax: warn ? valleyCfg.lossMax * 1.2 : valleyCfg.lossMax });
     chartBox.appendChild(chart.root);
     var legend = el('div', { class: 't10-chart-legend' });
-    ghosts.forEach(function (g) {
-      var li = el('span', { html: '<span class="sw" style="background:' + g.color + '"></span>' + g.label });
-      legend.appendChild(li);
+    ghosts.forEach(function (ghost) {
+      legend.appendChild(el('span', { html: '<span class="sw" style="background:' + ghost.color + '"></span>' + ghost.label }));
     });
-    var liNow = el('span', { html: '<span class="sw" style="background:' + (warn ? '#dc2626' : '#2563eb') + '"></span>当前 η = ' + lr.toFixed(3) });
-    legend.appendChild(liNow);
+    legend.appendChild(el('span', { html: '<span class="sw" style="background:' + (warn ? '#dc2626' : '#2563eb') + '"></span>current eta = ' + lr.toFixed(3) }));
     chartBox.appendChild(legend);
     wrap.appendChild(chartBox);
 
-    // 警告条（仅 huge）
     var warnBar = null;
-    if (opts.warnText) {
-      warnBar = el('div', { class: 't10-warn-bar', text: opts.warnText });
+    if (warnText) {
+      warnBar = el('div', { class: 't10-warn-bar', text: warnText });
       wrap.appendChild(warnBar);
     }
 
     wrap.appendChild(feedbackBar(idx));
 
     function redrawChart(losses) {
-      // 清空再画
       while (chart.root.childNodes.length > 8) chart.root.removeChild(chart.root.lastChild);
-      ghosts.forEach(function (g) {
-        var p = drawLossLine({ xOf: chart.xOf, yOf: chart.yOf }, g.losses, 'ghost');
-        if (p) {
-          p.setAttribute('stroke', g.color);
-          p.setAttribute('stroke-dasharray', '4 4');
-          p.setAttribute('opacity', '0.7');
-          chart.root.appendChild(p);
-        }
+      ghosts.forEach(function (ghost) {
+        var line = drawLossLine(chart, ghost.losses, 'ghost');
+        if (!line) return;
+        line.setAttribute('stroke', ghost.color);
+        line.setAttribute('stroke-dasharray', '4 4');
+        line.setAttribute('opacity', '0.7');
+        chart.root.appendChild(line);
       });
-      var line = drawLossLine({ xOf: chart.xOf, yOf: chart.yOf }, losses, lineClass);
-      if (line) chart.root.appendChild(line);
-      // 端点
+      var currentLine = drawLossLine(chart, losses, lineClass);
+      if (currentLine) chart.root.appendChild(currentLine);
       if (losses.length) {
         var last = losses[losses.length - 1];
-        var dot = svg('circle', { class: 't10-chart-dot' + (warn ? ' warn' : ''), cx: chart.xOf(losses.length - 1), cy: chart.yOf(last), r: 4 });
-        chart.root.appendChild(dot);
+        chart.root.appendChild(svg('circle', {
+          class: 't10-chart-dot' + (warn ? ' warn' : ''),
+          cx: chart.xOf(losses.length - 1),
+          cy: chart.yOf(last),
+          r: 4
+        }));
       }
     }
 
-    function reset() {
-      while (trailLayer.firstChild) trailLayer.removeChild(trailLayer.firstChild);
-      state[trailField] = [startW];
-      state[lossField] = [helpers.loss(startW)];
-      ball.setAttribute('cx', v.xOf(startW));
-      ball.setAttribute('cy', v.yOf(helpers.loss(startW)));
-      counter.textContent = '已走 0 / ' + steps + ' 步';
-      runBtn.removeAttribute('disabled');
-      if (warnBar) warnBar.classList.remove('is-on');
-      redrawChart(state[lossField]);
+    function ensureState() {
+      if (!state[trailField].length) state[trailField] = [startW];
+      if (!state[lossField].length) state[lossField] = [helpers.loss(startW)];
     }
 
-    reset();
+    function completedSteps() {
+      return Math.max(0, state[trailField].length - 1);
+    }
+
+    function redrawTrail() {
+      while (trailLayer.firstChild) trailLayer.removeChild(trailLayer.firstChild);
+      state[trailField].slice(1).forEach(function (w) {
+        trailLayer.appendChild(svg('circle', {
+          cx: valley.xOf(clampValleyW(w)),
+          cy: valley.yOf(helpers.loss(clampValleyW(w))),
+          r: 3.5
+        }));
+      });
+    }
+
+    function syncScene(updateChrome) {
+      ensureState();
+      redrawTrail();
+      var currentW = state[trailField][state[trailField].length - 1];
+      var clamped = clampValleyW(currentW);
+      ball.setAttribute('cx', valley.xOf(clamped));
+      ball.setAttribute('cy', valley.yOf(helpers.loss(clamped)));
+      counter.textContent = 'Steps ' + completedSteps() + ' / ' + steps;
+      redrawChart(state[lossField]);
+      if (state[doneField]) {
+        runBtn.setAttribute('disabled', 'disabled');
+        nextBtn.removeAttribute('disabled');
+        if (warnBar && warn) warnBar.classList.add('is-on');
+      } else {
+        runBtn.removeAttribute('disabled');
+        nextBtn.setAttribute('disabled', 'disabled');
+        if (warnBar) warnBar.classList.remove('is-on');
+      }
+      if (updateChrome) {
+        renderProgress();
+        renderPager();
+      }
+    }
+
+    function reset(updateChrome) {
+      cancelAutoSceneRun(idx);
+      state[doneField] = false;
+      state[trailField] = [startW];
+      state[lossField] = [helpers.loss(startW)];
+      syncScene(updateChrome !== false);
+    }
 
     function run() {
+      reset(false);
       runBtn.setAttribute('disabled', 'disabled');
-      var w = state[trailField][0];
-      var i = 0;
+      var runToken = (state.autoSceneRuns[idx] || 0) + 1;
+      state.autoSceneRuns[idx] = runToken;
       function tick() {
-        if (i >= steps) {
+        if (state.autoSceneRuns[idx] !== runToken) return;
+        if (completedSteps() >= steps) {
           state[doneField] = true;
-          nextBtn.removeAttribute('disabled');
-          if (warnBar && warn) warnBar.classList.add('is-on');
+          syncScene(true);
           setFeedback(idx, feedbackDone, feedbackTone);
-          renderProgress();
           return;
         }
-        var st = helpers.gdStep(w, lr);
-        w = st.to;
-        state[trailField].push(w);
-        var lossNow = helpers.loss(w);
-        state[lossField].push(Math.min(lossNow, valleyCfg.lossMax * 1.2));
-        // 轨迹
-        trailLayer.appendChild(svg('circle', { cx: v.xOf(Math.max(-3.2, Math.min(3.2, w))), cy: v.yOf(helpers.loss(Math.max(-3.2, Math.min(3.2, w)))), r: 3.5 }));
-        ball.setAttribute('cx', v.xOf(Math.max(-3.2, Math.min(3.2, w))));
-        ball.setAttribute('cy', v.yOf(helpers.loss(Math.max(-3.2, Math.min(3.2, w)))));
-        i += 1;
-        counter.textContent = '已走 ' + i + ' / ' + steps + ' 步';
-        redrawChart(state[lossField]);
-        setTimeout(tick, warn && i > 1 ? 320 : 180);
+        var from = state[trailField][state[trailField].length - 1];
+        var step = helpers.gdStep(from, lr);
+        state[trailField].push(step.to);
+        state[lossField].push(Math.min(helpers.loss(step.to), valleyCfg.lossMax * 1.2));
+        syncScene(false);
+        window.setTimeout(tick, warn && completedSteps() > 1 ? runDelay : 180);
       }
       tick();
     }
 
+    syncScene(false);
     runBtn.addEventListener('click', run);
-    resetBtn.addEventListener('click', reset);
+    resetBtn.addEventListener('click', function () { reset(true); });
     nextBtn.addEventListener('click', function () { goToScene(idx + 1); });
 
     return wrap;
   }
 
-  // ---------- 场景 2：小学习率 ----------
   function buildScene2() {
     return buildAutoScene({
       sceneIndex: 2,
@@ -775,14 +841,13 @@
       trailField: 'smallTrail',
       lossField: 'smallLosses',
       doneField: 's3Done',
-      btnLabel: '用小学习率训练 30 步',
-      nextLabel: '切到合适学习率 →',
-      feedbackDone: 'Loss 是在下降，但每步太小，30 步还远没到谷底。下一画面看看合适的学习率。',
+      btnLabel: 'Run tiny eta x30',
+      nextLabel: 'Try a better eta',
+      feedbackDone: 'Loss is going down, but the path is still far from the valley floor after 30 steps.',
       feedbackTone: 'warn'
     });
   }
 
-  // ---------- 场景 3：合适学习率 ----------
   function buildScene3() {
     return buildAutoScene({
       sceneIndex: 3,
@@ -791,17 +856,16 @@
       trailField: 'goodTrail',
       lossField: 'goodLosses',
       doneField: 's4Done',
-      btnLabel: '用合适学习率训练 15 步',
-      nextLabel: '切到大学习率 →',
+      btnLabel: 'Run good eta x15',
+      nextLabel: 'See a larger eta',
       ghosts: [
-        { trail: state.smallTrail, losses: state.smallLosses, label: '小 η = 0.005', color: '#94a3b8' }
+        { trail: state.smallTrail, losses: state.smallLosses, label: 'small eta = 0.005', color: '#94a3b8' }
       ],
-      feedbackDone: '15 步就稳稳逼近 w* = 0，Loss 比小学习率快很多。',
+      feedbackDone: 'The path reaches the valley floor much faster with a better-sized eta.',
       feedbackTone: 'good'
     });
   }
 
-  // ---------- 场景 4：大学习率 ----------
   function buildScene4() {
     return buildAutoScene({
       sceneIndex: 4,
@@ -810,18 +874,16 @@
       trailField: 'bigTrail',
       lossField: 'bigLosses',
       doneField: 's5Done',
-      btnLabel: '用大学习率训练 10 步',
-      nextLabel: '看极大学习率 →',
+      btnLabel: 'Run larger eta x10',
+      nextLabel: 'Push eta too far',
       ghosts: [
-        { trail: state.goodTrail, losses: state.goodLosses, label: '合适 η = 0.1', color: '#2563eb' }
+        { trail: state.goodTrail, losses: state.goodLosses, label: 'good eta = 0.1', color: '#2563eb' }
       ],
-      feedbackDone: '小球在谷底两侧来回震荡，Loss 折线呈锯齿——大学习率开始不稳了。',
-      feedbackTone: 'warn',
-      warn: false
+      feedbackDone: 'The path overshoots and oscillates. Direction is still useful, but the step is too large.',
+      feedbackTone: 'warn'
     });
   }
 
-  // ---------- 场景 5：极大学习率发散 ----------
   function buildScene5() {
     return buildAutoScene({
       sceneIndex: 5,
@@ -830,221 +892,294 @@
       trailField: 'hugeTrail',
       lossField: 'hugeLosses',
       doneField: 's6Done',
-      btnLabel: '用极大学习率训练 5 步',
-      nextLabel: '搬到 MLP 拟合 →',
+      btnLabel: 'Run huge eta x5',
+      nextLabel: 'Open MLP demo',
       trailClass: 'warn',
       lineClass: 'warn',
       ghosts: [
-        { trail: state.bigTrail, losses: state.bigLosses, label: '大 η = 0.6', color: '#f97316' }
+        { trail: state.bigTrail, losses: state.bigLosses, label: 'large eta = 0.6', color: '#f97316' }
       ],
       warn: true,
-      warnText: '⚠ 训练发散：参数被推得越来越远，Loss 反而上升。',
-      feedbackDone: '5 步就够了：参数飞出窗口，Loss 越来越大——这就是发散。',
+      warnText: 'Divergence: the parameter is being pushed farther away and the loss climbs instead.',
+      feedbackDone: 'This is divergence. The update is so large that every step moves farther away.',
       feedbackTone: 'loss'
     });
   }
 
-  // ---------- 场景 6：MLP 拟合 ----------
   function buildScene6() {
     var wrap = el('section', { class: 't10-scene', 'data-scene-index': 6 });
     wrap.appendChild(sceneHead(6));
 
     var pane = el('div', { class: 't10-mlp-pane' });
 
-    // 左：拟合曲线
     var fitWrap = el('div');
-    var W = 600, H = 260, mL = 38, mR = 18, mT = 20, mB = 36;
-    var iw = W - mL - mR, ih = H - mT - mB;
-    var xMin = mlpCfg.xMin, xMax = mlpCfg.xMax, yMin = -2.4, yMax = 2.4;
+    var W = 600;
+    var H = 260;
+    var mL = 38;
+    var mR = 18;
+    var mT = 20;
+    var mB = 36;
+    var iw = W - mL - mR;
+    var ih = H - mT - mB;
+    var xMin = mlpCfg.xMin;
+    var xMax = mlpCfg.xMax;
+    var yMin = -2.4;
+    var yMax = 2.4;
+
     function xOf(x) { return mL + (x - xMin) / (xMax - xMin) * iw; }
     function yOf(y) { return mT + (1 - (y - yMin) / (yMax - yMin)) * ih; }
 
     var fit = svg('svg', { class: 'fit', viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'xMidYMid meet' });
     fit.appendChild(svg('path', { class: 't10-axis', d: 'M' + mL + ',' + (mT + ih) + ' L' + (mL + iw) + ',' + (mT + ih) }));
     fit.appendChild(svg('path', { class: 't10-axis', d: 'M' + mL + ',' + mT + ' L' + mL + ',' + (mT + ih) }));
-    var fLab = svg('text', { class: 't10-text bold', x: mL + iw, y: mT + ih + 24, 'text-anchor': 'end' });
-    fLab.textContent = 'x';
-    fit.appendChild(fLab);
-    var fY = svg('text', { class: 't10-text bold', x: mL + 4, y: mT - 4, 'text-anchor': 'start' });
-    fY.textContent = 'y';
-    fit.appendChild(fY);
-    // 散点
-    mlpCfg.xs.forEach(function (x, i) {
-      fit.appendChild(svg('circle', { class: 't10-mlp-scatter', cx: xOf(x), cy: yOf(mlpCfg.ys[i]), r: 3.5 }));
+    var xLab = svg('text', { class: 't10-text bold', x: mL + iw, y: mT + ih + 24, 'text-anchor': 'end' });
+    xLab.textContent = 'x';
+    fit.appendChild(xLab);
+    var yLab = svg('text', { class: 't10-text bold', x: mL + 4, y: mT - 4, 'text-anchor': 'start' });
+    yLab.textContent = 'y';
+    fit.appendChild(yLab);
+    mlpCfg.xs.forEach(function (x, idx) {
+      fit.appendChild(svg('circle', { class: 't10-mlp-scatter', cx: xOf(x), cy: yOf(mlpCfg.ys[idx]), r: 3.5 }));
     });
-    var line = svg('path', { class: 't10-mlp-line', d: '' });
-    fit.appendChild(line);
+    var fitLine = svg('path', { class: 't10-mlp-line', d: '' });
+    fit.appendChild(fitLine);
     fitWrap.appendChild(fit);
     pane.appendChild(fitWrap);
 
-    // 右：控制 + 损失
     var side = el('div', { class: 't10-mlp-side' });
 
     var lrCtl = el('div', { class: 't10-lr-control' });
     var lrHead = el('div', { class: 'head' });
-    lrHead.appendChild(el('div', { class: 'name', text: 'MLP 学习率 η' }));
+    lrHead.appendChild(el('div', { class: 'name', text: 'MLP eta' }));
     var lrValue = el('div', { class: 't10-lr-value', text: state.s7Lr.toFixed(3) });
     lrHead.appendChild(lrValue);
     lrCtl.appendChild(lrHead);
+
     var lrButtons = el('div', { class: 't10-actions-row' });
+    var lrOptionButtons = [];
     mlpCfg.lrOptions.forEach(function (lr) {
-      var b = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'η = ' + lr.toFixed(3) }), 't10_scene7_lr_' + String(lr).replace('.', ''), 'mlp_lr_pick', { lr: lr });
-      b.addEventListener('click', function () {
+      var btn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'eta = ' + lr.toFixed(3) }), 't10_scene7_lr_' + String(lr).replace('.', ''), 'mlp_lr_pick', { lr: lr });
+      btn.addEventListener('click', function () {
         state.s7Lr = lr;
         state.s7LrTries[lr] = true;
-        lrValue.textContent = lr.toFixed(3);
         var zone = helpers.lrZone(lr);
-        setFeedback(6, '已切到 η = ' + lr.toFixed(3) + '（' + zone.label + '）。点 单步训练 或 连训 20 步 试试。', zone.tone);
-        updateNextBtn();
+        setFeedback(6, 'Switched to eta = ' + lr.toFixed(3) + ' (' + zone.label + '). Try one step or the 20-step burst.', zone.tone);
+        syncMlpUi(true);
       });
-      lrButtons.appendChild(b);
+      lrOptionButtons.push({ lr: lr, button: btn });
+      lrButtons.appendChild(btn);
     });
     lrCtl.appendChild(lrButtons);
     side.appendChild(lrCtl);
 
-    // 损失图
+    var statusCard = el('div', { class: 't10-mlp-status' });
+    var statusGrid = el('div', { class: 't10-status-grid' });
+
+    function statusCell(label) {
+      var item = el('div', { class: 't10-status-item' });
+      item.appendChild(el('div', { class: 'label', text: label }));
+      var value = el('div', { class: 'value', text: '--' });
+      item.appendChild(value);
+      statusGrid.appendChild(item);
+      return value;
+    }
+
+    var triedValue = statusCell('LR tried');
+    var burstValue = statusCell('Burst x20');
+    var zoneValue = statusCell('Current zone');
+    var readyValue = statusCell('Unlock next');
+    statusCard.appendChild(statusGrid);
+    side.appendChild(statusCard);
+
     var lossBox = el('div', { class: 't10-mlp-loss' });
-    var LW = 360, LH = 160, lmL = 36, lmR = 12, lmT = 14, lmB = 26;
-    var liw = LW - lmL - lmR, lih = LH - lmT - lmB;
+    var LW = 360;
+    var LH = 160;
+    var lmL = 36;
+    var lmR = 12;
+    var lmT = 14;
+    var lmB = 26;
+    var liw = LW - lmL - lmR;
+    var lih = LH - lmT - lmB;
     var lossSvg = svg('svg', { viewBox: '0 0 ' + LW + ' ' + LH, preserveAspectRatio: 'xMidYMid meet' });
     lossSvg.appendChild(svg('path', { class: 't10-axis', d: 'M' + lmL + ',' + (lmT + lih) + ' L' + (lmL + liw) + ',' + (lmT + lih) }));
     lossSvg.appendChild(svg('path', { class: 't10-axis', d: 'M' + lmL + ',' + lmT + ' L' + lmL + ',' + (lmT + lih) }));
     var lossLine = svg('path', { class: 't10-chart-line', d: '' });
     lossSvg.appendChild(lossLine);
-    var lLab = svg('text', { class: 't10-text bold', x: lmL + liw, y: lmT + lih + 18, 'text-anchor': 'end' });
-    lLab.textContent = 'step';
-    lossSvg.appendChild(lLab);
-    var lYlab = svg('text', { class: 't10-text bold', x: lmL + 4, y: lmT - 2, 'text-anchor': 'start' });
-    lYlab.textContent = 'Loss';
-    lossSvg.appendChild(lYlab);
+    var stepLabel = svg('text', { class: 't10-text bold', x: lmL + liw, y: lmT + lih + 18, 'text-anchor': 'end' });
+    stepLabel.textContent = 'step';
+    lossSvg.appendChild(stepLabel);
+    var lossLabel = svg('text', { class: 't10-text bold', x: lmL + 4, y: lmT - 2, 'text-anchor': 'start' });
+    lossLabel.textContent = 'Loss';
+    lossSvg.appendChild(lossLabel);
     lossBox.appendChild(lossSvg);
     side.appendChild(lossBox);
 
-    var counter = el('div', { class: 't10-mlp-counter', text: 'step #0  ·  Loss = ' + state.s7LossHistory[0].toFixed(4) });
+    var counter = el('div', { class: 't10-mlp-counter', text: 'step #0 | Loss = ' + state.s7LossHistory[0].toFixed(4) });
     side.appendChild(counter);
 
     var actions = el('div', { class: 't10-actions-row' });
-    var oneBtn = setTracking(el('button', { class: 't10-action primary', type: 'button', text: '单步训练' }), 't10_scene7_one', 'mlp_one_step');
-    var burstBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: '连训 20 步' }), 't10_scene7_burst', 'mlp_burst');
-    var resetBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: '重置 θ' }), 't10_scene7_reset', 'mlp_reset');
+    var oneBtn = setTracking(el('button', { class: 't10-action primary', type: 'button', text: 'One step' }), 't10_scene7_one', 'mlp_one_step');
+    var burstBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'Burst x20' }), 't10_scene7_burst', 'mlp_burst');
+    var resetBtn = setTracking(el('button', { class: 't10-action ghost', type: 'button', text: 'Reset theta' }), 't10_scene7_reset', 'mlp_reset');
     actions.appendChild(oneBtn);
     actions.appendChild(burstBtn);
     actions.appendChild(resetBtn);
     side.appendChild(actions);
 
     var endActions = el('div', { class: 't10-actions-row' });
-    var nextBtn = setTracking(el('button', { class: 't10-action success', type: 'button', text: '完成 T10', disabled: 'disabled' }), 't10_scene7_next', 'scene_done');
+    var nextBtn = setTracking(el('button', { class: 't10-action success', type: 'button', text: 'Finish T10', disabled: 'disabled' }), 't10_scene7_next', 'scene_done');
     endActions.appendChild(nextBtn);
     side.appendChild(endActions);
 
     pane.appendChild(side);
     wrap.appendChild(pane);
-
     wrap.appendChild(feedbackBar(6));
 
     function drawFit() {
-      var d = '';
-      var SAMPLES = 80;
+      var path = '';
       var diverging = false;
-      for (var i = 0; i <= SAMPLES; i++) {
-        var x = xMin + (xMax - xMin) * i / SAMPLES;
+      var samples = 80;
+      for (var i = 0; i <= samples; i++) {
+        var x = xMin + (xMax - xMin) * i / samples;
         var y = helpers.mlpPredict(state.s7Theta, x);
-        if (!isFinite(y) || Math.abs(y) > 8) { diverging = true; y = Math.max(-2.4, Math.min(2.4, y || 0)); }
-        d += (i === 0 ? 'M' : 'L') + xOf(x).toFixed(2) + ',' + yOf(Math.max(-2.4, Math.min(2.4, y))).toFixed(2) + ' ';
+        if (!isFinite(y) || Math.abs(y) > 8) {
+          diverging = true;
+          y = Math.max(-2.4, Math.min(2.4, y || 0));
+        }
+        path += (i === 0 ? 'M' : 'L') + xOf(x).toFixed(2) + ',' + yOf(Math.max(-2.4, Math.min(2.4, y))).toFixed(2) + ' ';
       }
-      line.setAttribute('d', d);
-      line.classList.toggle('warn', diverging);
+      fitLine.setAttribute('d', path);
+      fitLine.classList.toggle('warn', diverging);
     }
 
     function drawLoss() {
-      var H = state.s7LossHistory;
-      var maxStep = Math.max(20, H.length - 1);
-      var maxLoss = 0;
-      H.forEach(function (v) { if (isFinite(v) && v > maxLoss) maxLoss = v; });
-      if (maxLoss <= 0) maxLoss = 1;
-      var d = '';
-      H.forEach(function (v, i) {
-        var lx = lmL + (i / Math.max(1, maxStep)) * liw;
-        var ly = lmT + (1 - Math.min(1, v / maxLoss)) * lih;
-        d += (i === 0 ? 'M' : 'L') + lx.toFixed(2) + ',' + ly.toFixed(2) + ' ';
+      var history = state.s7LossHistory;
+      var maxStep = Math.max(20, history.length - 1);
+      var maxLoss = 1;
+      history.forEach(function (value) {
+        if (isFinite(value) && value > maxLoss) maxLoss = value;
       });
-      lossLine.setAttribute('d', d);
-      var zone = helpers.lrZone(state.s7Lr);
-      lossLine.classList.toggle('warn', zone.key === 'huge');
+      var path = '';
+      history.forEach(function (value, idx) {
+        var lx = lmL + (idx / Math.max(1, maxStep)) * liw;
+        var ly = lmT + (1 - Math.min(1, value / maxLoss)) * lih;
+        path += (idx === 0 ? 'M' : 'L') + lx.toFixed(2) + ',' + ly.toFixed(2) + ' ';
+      });
+      lossLine.setAttribute('d', path);
+      lossLine.classList.toggle('warn', helpers.lrZone(state.s7Lr).key === 'huge');
     }
 
-    function updateNextBtn() {
-      var enoughTries = Object.keys(state.s7LrTries).length >= 3;
-      if (enoughTries && state.s7BurstDone) {
-        state.s7Done = true;
-        nextBtn.removeAttribute('disabled');
+    function updateLrButtons() {
+      lrValue.textContent = state.s7Lr.toFixed(3);
+      lrOptionButtons.forEach(function (entry) {
+        var isActive = entry.lr === state.s7Lr;
+        var isTried = !!state.s7LrTries[entry.lr];
+        entry.button.classList.toggle('is-active', isActive);
+        entry.button.classList.toggle('is-tried', isTried);
+        entry.button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+
+    function updateStatusCard() {
+      var zone = helpers.lrZone(state.s7Lr);
+      var tries = triedMlpLrCount();
+      triedValue.textContent = tries + ' / 3';
+      triedValue.className = 'value' + (tries >= 3 ? ' is-ready' : '');
+      burstValue.textContent = state.s7BurstDone ? 'done' : (state.s7BurstActive ? 'running' : 'pending');
+      burstValue.className = 'value' + (state.s7BurstDone ? ' is-ready' : '');
+      zoneValue.textContent = zone.label;
+      zoneValue.className = 'value tone-' + zone.tone;
+      readyValue.textContent = state.s7Done ? 'ready' : 'keep exploring';
+      readyValue.className = 'value' + (state.s7Done ? ' is-ready' : '');
+    }
+
+    function updateNextBtn(updateChrome) {
+      state.s7Done = triedMlpLrCount() >= 3 && state.s7BurstDone;
+      if (state.s7Done) nextBtn.removeAttribute('disabled');
+      else nextBtn.setAttribute('disabled', 'disabled');
+      if (updateChrome) {
         renderProgress();
+        renderPager();
+      }
+    }
+
+    function syncMlpUi(updateChrome) {
+      counter.textContent = 'step #' + state.s7StepCount + ' | Loss = ' + state.s7LossHistory[state.s7LossHistory.length - 1].toFixed(4);
+      drawFit();
+      drawLoss();
+      updateLrButtons();
+      updateNextBtn(updateChrome);
+      updateStatusCard();
+      if (state.s7BurstActive) {
+        oneBtn.setAttribute('disabled', 'disabled');
+        burstBtn.setAttribute('disabled', 'disabled');
+      } else {
+        oneBtn.removeAttribute('disabled');
+        burstBtn.removeAttribute('disabled');
       }
     }
 
     function oneStep() {
-      var t = helpers.mlpStep(state.s7Theta, state.s7Lr);
-      state.s7Theta = t;
+      state.s7Theta = helpers.mlpStep(state.s7Theta, state.s7Lr);
       state.s7StepCount += 1;
-      var l = helpers.mlpLoss(state.s7Theta);
-      state.s7LossHistory.push(l);
-      counter.textContent = 'step #' + state.s7StepCount + '  ·  Loss = ' + l.toFixed(4);
-      drawFit();
-      drawLoss();
+      var loss = helpers.mlpLoss(state.s7Theta);
+      state.s7LossHistory.push(loss);
       state.s7LrTries[state.s7Lr] = true;
-      setFeedback(6, '走了 1 步：η = ' + state.s7Lr.toFixed(3) + '，Loss = ' + l.toFixed(4) + '。', helpers.lrZone(state.s7Lr).tone);
-      updateNextBtn();
+      setFeedback(6, 'Step taken: eta = ' + state.s7Lr.toFixed(3) + ', Loss = ' + loss.toFixed(4) + '.', helpers.lrZone(state.s7Lr).tone);
+      syncMlpUi(true);
     }
 
     function burst() {
-      oneBtn.setAttribute('disabled', 'disabled');
-      burstBtn.setAttribute('disabled', 'disabled');
-      var i = 0;
+      state.s7BurstToken += 1;
+      var runToken = state.s7BurstToken;
+      state.s7BurstActive = true;
+      syncMlpUi(false);
+      var count = 0;
       function tick() {
-        if (i >= 20) {
-          oneBtn.removeAttribute('disabled');
-          burstBtn.removeAttribute('disabled');
+        if (state.s7BurstToken !== runToken) return;
+        if (count >= 20) {
+          state.s7BurstActive = false;
           state.s7BurstDone = true;
-          updateNextBtn();
-          var l = state.s7LossHistory[state.s7LossHistory.length - 1];
-          setFeedback(6, '连训 20 步后 Loss = ' + l.toFixed(4) + '。试试三个 η 都跑一遍再下结论。', helpers.lrZone(state.s7Lr).tone);
+          syncMlpUi(true);
+          var loss = state.s7LossHistory[state.s7LossHistory.length - 1];
+          setFeedback(6, '20-step burst done. Loss = ' + loss.toFixed(4) + '. Try at least 3 eta values.', helpers.lrZone(state.s7Lr).tone);
           return;
         }
         oneStep();
-        i += 1;
-        setTimeout(tick, 90);
+        count += 1;
+        window.setTimeout(tick, 90);
       }
       tick();
     }
 
     function reset() {
+      state.s7BurstToken += 1;
+      state.s7BurstActive = false;
       state.s7Theta = mlpCfg.init.slice();
       state.s7StepCount = 0;
       state.s7LossHistory = [helpers.mlpLoss(state.s7Theta)];
-      counter.textContent = 'step #0  ·  Loss = ' + state.s7LossHistory[0].toFixed(4);
-      drawFit();
-      drawLoss();
-      setFeedback(6, 'θ 已重置，可以换一个 η 再来。', 'grad');
+      syncMlpUi(true);
+      setFeedback(6, 'Theta reset. Try another eta.', 'grad');
     }
 
     oneBtn.addEventListener('click', oneStep);
     burstBtn.addEventListener('click', burst);
     resetBtn.addEventListener('click', reset);
     nextBtn.addEventListener('click', function () {
-      setFeedback(6, 'T10 学习率完成：方向交给梯度，步长交给 η。', 'good');
+      setFeedback(6, 'T10 complete: gradient gives direction, eta sets step size.', 'good');
       renderProgress();
+      renderPager();
     });
 
-    drawFit();
-    drawLoss();
-
+    syncMlpUi(false);
     return wrap;
   }
 
-  // ---------- 渲染 ----------
   function render() {
     sceneBuilders = [buildScene0, buildScene1, buildScene2, buildScene3, buildScene4, buildScene5, buildScene6];
-    window.addEventListener('hashchange', function () { showScene(sceneFromHash()); });
+    window.addEventListener('hashchange', function () {
+      showScene(sceneFromHash());
+    });
     showScene(sceneFromHash());
   }
 
